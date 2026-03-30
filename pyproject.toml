@@ -1,0 +1,43 @@
+[project]
+name = "hbws-clustering"
+version = "0.1.0"
+description = "Humpback whale vocalization clustering using AVES embeddings, UMAP, and HDBSCAN."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "hdbscan>=0.8.42",
+    "librosa>=0.11.0",
+    "numpy>=2.4.4",
+    "soundfile>=0.13.1",
+    "torch>=2.11.0",
+    "torchaudio>=2.11.0",
+    "transformers>=5.4.0",
+    "typer>=0.9",
+    "umap-learn>=0.5.11",
+]
+
+[project.scripts]
+hbws-cluster = "hbws_clustering.__main__:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hbws_clustering"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
