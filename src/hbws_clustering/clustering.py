@@ -19,7 +19,7 @@ class HdbscanClusterer:
     min_cluster_size:
         Smallest group that can be considered a cluster.
     min_samples:
-        Number of samples in the neighbourhood for a point to be considered a
+        Number of samples in the neighborhood for a point to be considered a
         core point. Defaults to ``min_cluster_size``.
     cluster_selection_epsilon:
         Distance threshold below which clusters are merged.

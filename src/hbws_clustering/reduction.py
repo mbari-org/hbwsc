@@ -17,7 +17,7 @@ class UmapReducer:
     n_components:
         Target dimensionality. ``2`` for visualization, higher for clustering.
     n_neighbors:
-        UMAP neighbourhood size. Controls local vs. global structure trade-off.
+        UMAP neighborhood size. Controls local vs. global structure trade-off.
     min_dist:
         Minimum distance between points in the low-dimensional representation.
     metric:
