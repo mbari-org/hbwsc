@@ -56,6 +56,7 @@ def run(
     sample_rate: int = typer.Option(16_000, help="Target sample rate for resampling."),
     model: str = typer.Option(_AVES_BASE_BIO_URL, help="URL to a TorchAudio AVES checkpoint (.pt)."),
     pooling: str = typer.Option("mean", help="Embedding pooling: 'mean' or 'max'."),
+    batch_size: int = typer.Option(16, help="AVES inference batch size. Increase (e.g. 64) on GPU."),
     umap_components: int = typer.Option(2, help="UMAP output dimensions."),
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
     min_cluster_size: int = typer.Option(5, help="HDBSCAN min_cluster_size."),
@@ -88,7 +89,7 @@ def run(
 
     pipe = ClusteringPipeline(
         windower=windower,
-        embedder=AvesEmbedder(model_url=model, pooling=pooling),
+        embedder=AvesEmbedder(model_url=model, pooling=pooling, batch_size=batch_size),
         reducer=UmapReducer(n_components=umap_components, n_neighbors=umap_neighbors),
         clusterer=HdbscanClusterer(min_cluster_size=min_cluster_size),
     )
