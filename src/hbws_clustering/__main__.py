@@ -24,7 +24,7 @@ def run(
     window_sec: float = typer.Option(2.0, help="Window duration in seconds."),
     hop_sec: Optional[float] = typer.Option(None, help="Window hop in seconds (default = window_sec)."),
     sample_rate: int = typer.Option(16_000, help="Target sample rate for resampling."),
-    model: str = typer.Option(AVES_BASE_BIO, help="HuggingFace AVES model ID."),
+    model: str = typer.Option(AVES_BASE_BIO, help="URL to a TorchAudio AVES checkpoint (.pt)."),
     pooling: str = typer.Option("mean", help="Embedding pooling: 'mean' or 'max'."),
     umap_components: int = typer.Option(2, help="UMAP output dimensions."),
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
@@ -38,7 +38,7 @@ def run(
             hop_sec=hop_sec,
             target_sr=sample_rate,
         ),
-        embedder=AvesEmbedder(model_name=model, pooling=pooling),
+        embedder=AvesEmbedder(model_url=model, pooling=pooling),
         reducer=UmapReducer(n_components=umap_components, n_neighbors=umap_neighbors),
         clusterer=HdbscanClusterer(min_cluster_size=min_cluster_size),
     )
