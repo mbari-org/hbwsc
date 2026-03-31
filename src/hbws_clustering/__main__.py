@@ -112,6 +112,8 @@ def run(
             probabilities=result.probabilities,
             reduced=result.reduced,
             embeddings=result.embeddings,
+            start_secs=np.array([w.start_sec for w in result.windows]),
+            source_files=np.array([str(w.source_file) for w in result.windows]),
         )
         typer.echo(f"\nResults saved to {output}")
 

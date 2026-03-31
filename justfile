@@ -24,6 +24,11 @@ run_scored score_dir score_threshold mcs *wavs:
       --output output/results_mcs{{ mcs }}.npz \
       {{ wavs }}
 
+export-cluster npz cluster n="10":
+    uv run python scripts/export_cluster.py \
+       {{ npz }} {{ cluster }} \
+       output/cluster_{{ cluster }} {{ n }}
+
 inspect-npz npz="output/results.npz":
     uv run python scripts/inspect_npz.py {{ npz }}
 
