@@ -20,6 +20,7 @@ run_scored score_dir score_threshold *wavs:
       --window-sec 2.0 \
       --hop-sec 1.0 \
       --min-cluster-size 10 \
+      --embeddings-cache output/embeddings.npy \
       --output output/results_from_scored.npz \
       {{ wavs }}
 

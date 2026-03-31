@@ -59,6 +59,10 @@ def run(
     umap_components: int = typer.Option(2, help="UMAP output dimensions."),
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
     min_cluster_size: int = typer.Option(5, help="HDBSCAN min_cluster_size."),
+    embeddings_cache: Optional[Path] = typer.Option(
+        None, "--embeddings-cache", "-e",
+        help="Path to a .npy file for caching AVES embeddings. Loaded if it exists, saved otherwise.",
+    ),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Save results as .npz file."),
 ) -> None:
     """Cluster humpback whale vocalizations in AUDIO_FILES.
@@ -91,9 +95,9 @@ def run(
 
     if score_dir is not None:
         pairs = [(f, _score_path(f, score_dir)) for f in audio_files]
-        result = pipe.run_scored(pairs)
+        result = pipe.run_scored(pairs, embeddings_cache=embeddings_cache)
     else:
-        result = pipe.run(audio_files)
+        result = pipe.run(audio_files, embeddings_cache=embeddings_cache)
 
     typer.echo("\nCluster summary:")
     for label, count in sorted(result.cluster_summary().items()):

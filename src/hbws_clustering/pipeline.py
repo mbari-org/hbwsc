@@ -60,7 +60,11 @@ class ClusteringPipeline:
     clusterer: HdbscanClusterer = field(default_factory=HdbscanClusterer)
     verbose: bool = True
 
-    def run(self, audio_paths: Sequence[str | Path]) -> PipelineResult:
+    def run(
+        self,
+        audio_paths: Sequence[str | Path],
+        embeddings_cache: Path | None = None,
+    ) -> PipelineResult:
         """Run the full pipeline on a list of plain audio files."""
         self._log("Step 1/4: Windowing audio files...")
         windows: list[Window] = []
@@ -70,9 +74,9 @@ class ClusteringPipeline:
             self._log(f"  {Path(path).name}: {len(file_windows)} windows")
         self._log(f"  Total windows: {len(windows)}")
 
-        return self._run_from_windows(windows)
+        return self._run_from_windows(windows, embeddings_cache)
 
-    def run_scored(self, pairs: Sequence[ScoredPair]) -> PipelineResult:
+    def run_scored(self, pairs: Sequence[ScoredPair], embeddings_cache: Path | None = None) -> PipelineResult:
         """Run the pipeline using detector scores to guide windowing.
 
         Parameters
@@ -102,14 +106,16 @@ class ClusteringPipeline:
             self._log(f"  {Path(audio_path).name}: {len(file_windows)} windows")
         self._log(f"  Total windows: {len(windows)}")
 
-        return self._run_from_windows(windows)
+        return self._run_from_windows(windows, embeddings_cache)
 
-    def _run_from_windows(self, windows: list[Window]) -> PipelineResult:
+    def _run_from_windows(
+        self, windows: list[Window], embeddings_cache: Path | None = None
+    ) -> PipelineResult:
         if not windows:
             raise ValueError("No windows extracted — check audio paths and window/score settings.")
 
         self._log("Step 2/4: Extracting AVES embeddings...")
-        embeddings = self.embedder.embed_windows(windows)
+        embeddings = self._load_or_compute_embeddings(windows, embeddings_cache)
         self._log(f"  Embeddings shape: {embeddings.shape}")
 
         self._log("Step 3/4: UMAP dimensionality reduction...")
@@ -132,6 +138,29 @@ class ClusteringPipeline:
             labels=labels,
             probabilities=probabilities,
         )
+
+    def _load_or_compute_embeddings(
+        self, windows: list[Window], cache: Path | None
+    ) -> np.ndarray:
+        if cache is not None and cache.exists():
+            embeddings = np.load(cache)
+            if embeddings.shape[0] != len(windows):
+                self._log(
+                    f"  WARNING: cache has {embeddings.shape[0]} rows but "
+                    f"{len(windows)} windows — recomputing."
+                )
+            else:
+                self._log(f"  Loaded from cache: {cache}")
+                return embeddings
+
+        embeddings = self.embedder.embed_windows(windows)
+
+        if cache is not None:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            np.save(cache, embeddings)
+            self._log(f"  Saved to cache: {cache}")
+
+        return embeddings
 
     def _log(self, msg: str) -> None:
         if self.verbose:
