@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import librosa
+import soundfile as sf
 
 
 @dataclass
@@ -67,7 +68,7 @@ class AudioWindower:
             sample_rate = self.target_sr
         return self._slice(audio, sample_rate, source_file)
 
-    def _slice(self, audio: np.ndarray, sr: int, path: Path) -> list[Window]:
+    def _slice(self, audio: np.ndarray, sr: int, path: Path, offset_sec: float = 0.0) -> list[Window]:
         win_samples = int(self.window_sec * sr)
         hop_samples = int(self._hop_sec * sr)
         min_samples = int(self.min_window_sec * sr)
@@ -87,10 +88,92 @@ class AudioWindower:
                     audio=chunk.astype(np.float32),
                     sample_rate=sr,
                     source_file=path,
-                    start_sec=start / sr,
-                    end_sec=(start + win_samples) / sr,
+                    start_sec=offset_sec + start / sr,
+                    end_sec=offset_sec + (start + win_samples) / sr,
                 )
             )
             start += hop_samples
 
         return windows
+
+
+@dataclass
+class ScoreGuidedWindower:
+    """Extract windows only from high-confidence regions of a day-long audio file.
+
+    Uses detector score arrays (one float per second, shape ``(86400,)``) produced
+    by the NOAA/Google Humpback Whale Song Detector to skip silence and ambient
+    noise, reading only the relevant slices from disk.  The 4+ GB day file is
+    never loaded into memory in full.
+
+    Parameters
+    ----------
+    windower:
+        Underlying :class:`AudioWindower` used to slice each high-score chunk.
+    threshold:
+        Minimum score to include a second in the analysis.
+    """
+
+    windower: AudioWindower = field(default_factory=AudioWindower)
+    threshold: float = 0.7
+
+    def window_file(
+        self,
+        audio_path: str | Path,
+        scores: np.ndarray | str | Path,
+    ) -> list[Window]:
+        """Return windows from high-score regions of *audio_path*.
+
+        Parameters
+        ----------
+        audio_path:
+            Path to a day-long WAV file (any sample rate; resampling is handled
+            by the underlying ``AudioWindower``).
+        scores:
+            Either a 1-D numpy array of per-second scores, or a path to a
+            ``.npy`` file containing one.
+        """
+        if not isinstance(scores, np.ndarray):
+            scores = np.load(scores)
+
+        segments = self._high_score_segments(scores)
+        if not segments:
+            return []
+
+        audio_path = Path(audio_path)
+        windows: list[Window] = []
+
+        with sf.SoundFile(audio_path) as f:
+            sr_native = f.samplerate
+            for start_sec, end_sec in segments:
+                start_frame = int(start_sec * sr_native)
+                # read enough frames to cover at least one full window past end_sec
+                stop_frame = int((end_sec + self.windower.window_sec) * sr_native)
+                stop_frame = min(stop_frame, f.frames)
+
+                f.seek(start_frame)
+                chunk = f.read(stop_frame - start_frame, dtype="float32", always_2d=False)
+
+                chunk_windows = self.windower.window_array(
+                    chunk, sr_native, source_file=audio_path
+                )
+                # shift timestamps to be absolute within the day
+                for w in chunk_windows:
+                    w.start_sec += start_sec
+                    w.end_sec += start_sec
+
+                windows.extend(chunk_windows)
+
+        return windows
+
+    def _high_score_segments(self, scores: np.ndarray) -> list[tuple[int, int]]:
+        """Return ``[(start_sec, end_sec), ...]`` for contiguous runs above threshold."""
+        high = np.where(scores >= self.threshold)[0]
+        if len(high) == 0:
+            return []
+
+        segments = []
+        gaps = np.where(np.diff(high) > 1)[0] + 1
+        for run in np.split(high, gaps):
+            segments.append((int(run[0]), int(run[-1]) + 1))
+        return segments
