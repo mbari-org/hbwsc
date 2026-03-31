@@ -126,7 +126,9 @@ hbws_clustering/
 
 ## Design notes
 
-- **AVES model:** checkpoints are hosted by the [Earth Species Project](https://github.com/earthspecies/aves) on Google Cloud Storage.
+- **AVES model:** originally from the [Earth Species Project](https://github.com/earthspecies/aves),
+  now maintained as part of [avex](https://github.com/earthspecies/avex).
+  Checkpoints are loaded directly from Google Cloud Storage via TorchAudio.
   Two variants are available via module-level constants:
     - `AVES_BASE_BIO` — pretrained on bioacoustic audio (default, recommended for wildlife)
     - `AVES_BASE_ALL` — pretrained on a broader audio corpus
