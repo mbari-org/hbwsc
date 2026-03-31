@@ -100,6 +100,67 @@ print(r["reduced"])  # (N, 2) UMAP coordinates
 | `--embeddings-cache` / `-e` | — | Cache AVES embeddings to `.npy`; reloaded on subsequent runs |
 | `--output` / `-o` | — | Save results as `.npz` file |
 
+## Parameter guide
+
+### Step 1 — Score-guided windowing
+
+**`--score-threshold`** (default `0.7`)
+The HWSD scores are one value per second in [0, 1]. Only seconds at or above the threshold are
+kept. Raising it gives fewer, higher-confidence windows; lowering it includes more borderline
+material.
+
+**`--window-sec`** (default `2.0`)
+The fundamental unit of analysis. Every window is exactly this many seconds of audio and produces
+exactly one embedding vector. This choice involves a tradeoff:
+- Too short: may clip individual calls; AVES has less acoustic context to work with
+- Too long: may smear different call types together in one window; embeddings become less specific
+- The right value depends on the temporal scale of the structure you want to cluster
+  (individual units vs. phrases) and should be informed by domain knowledge and listening to the data
+
+**`--hop-sec`** (default `window-sec`, i.e. no overlap)
+Step between successive window starts. At `hop-sec=1.0` with `window-sec=2.0` windows overlap by
+50%, so each point in the audio appears in roughly two windows. More overlap gives finer temporal
+coverage but also more redundancy — adjacent windows will be very similar, which can inflate
+cluster sizes without adding new information.
+
+### Step 2 — AVES embeddings
+
+Each window → one 768-dimensional vector. AVES was pretrained on bioacoustic audio so it captures
+acoustic structure meaningful to animal vocalizations. Nothing to tune here except `--batch-size`
+for throughput (default 16 on CPU; 64–128 on GPU).
+
+### Step 3 — UMAP
+
+**`--umap-components`** (default `2`)
+Projection target dimensionality. 2 is for visualization. If you want clustering to operate in a
+richer space you could use 5–10 and skip the 2-D scatter plot, or run two passes: 2-D for
+visualization and higher-D to feed HDBSCAN.
+
+**`--umap-neighbors`** (default `15`)
+Controls local vs. global structure. Small values (5–10) preserve fine local clusters; large
+values (30–50) pull the global shape together but may merge distinct call types (per the
+[UMAP documentation](https://umap-learn.readthedocs.io/en/latest/parameters.html)). The default
+of 15 is a reasonable starting point; tuning is worthwhile once you have a baseline.
+
+### Step 4 — HDBSCAN
+
+**`--min-cluster-size`** (default `5`)
+The minimum number of windows to form a cluster — anything smaller is labeled noise (`-1`). The
+right value depends on the dataset size and how rare the call types you care about are. At the
+default of 5 with tens of thousands of windows the algorithm will be permissive; raising it will
+produce fewer, larger clusters. What constitutes a meaningful minimum is a domain question.
+
+### The interaction that matters most
+
+`--window-sec` and `--hop-sec` determine what AVES sees, which determines what UMAP has to work
+with, which determines what HDBSCAN can separate. If two call types are acoustically similar
+within 2 s but distinguishable over longer context, no amount of UMAP/HDBSCAN tuning will
+separate them — you would need a longer window. Conversely, if you are trying to distinguish short
+stereotyped units (< 1 s), a 2-second window dilutes the signal with surrounding context.
+
+Once you have results, the key question to ask is: **do the clusters make acoustic sense?** —
+which means listening to a few windows from each cluster.
+
 ## GPU support
 
 The embedder auto-detects CUDA (`"cuda" if torch.cuda.is_available() else "cpu"`), so no code
