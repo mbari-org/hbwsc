@@ -161,6 +161,26 @@ stereotyped units (< 1 s), a 2-second window dilutes the signal with surrounding
 Once you have results, the key question to ask is: **do the clusters make acoustic sense?** —
 which means listening to a few windows from each cluster.
 
+## Intended analysis levels
+
+The clustering pipeline is designed to operate at the level of **units**, that is,
+the atomic elements of humpback song. This clustering is intended to serve as a basis
+to define such units, at least within the context of the recording site and conditions.
+The window length should be chosen such that it allows to capture the smallest unit
+in that context.
+
+Once good quality unit-type labels are obtained, higher-level structure can be recovered.
+While the score-guided windowing discards low-confidence regions, the temporal gaps are
+structural, that is, inter-unit, inter-phrase, and inter-song silences carry information
+needed for segmentation at higher levels. Unit clustering can be done entirely on detected
+regions, but phrase/theme/song analysis will require working on the full timeline, combining
+the unit-type labels and timestamps from the `.npz` with the gap information available in
+the score `.npy` files.
+
+HDBSCAN's soft membership probabilities (`result.probabilities`, saved in the `.npz`) give a
+per-window confidence score that can inform boundary decisions when unit-type assignment is
+ambiguous.
+
 ## GPU support
 
 The embedder auto-detects CUDA (`"cuda" if torch.cuda.is_available() else "cpu"`), so no code
