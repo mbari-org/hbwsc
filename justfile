@@ -1,6 +1,9 @@
 _list:
     @just --list --unsorted
 
+run *args:
+    uv run hbws-cluster {{ args }}
+
 run_basic *wavs:
     uv run hbws-cluster \
       --window-sec 2.0 \

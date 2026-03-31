@@ -6,18 +6,15 @@ import re
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
 import typer
-
-from hbws_clustering.embedding import AVES_BASE_BIO, AvesEmbedder
-from hbws_clustering.clustering import HdbscanClusterer
-from hbws_clustering.pipeline import ClusteringPipeline
-from hbws_clustering.reduction import UmapReducer
-from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower
 
 app = typer.Typer(help="Humpback whale vocalization clustering via AVES + UMAP + HDBSCAN.")
 
-# Matches MARS-YYYYMMDDTHHMMSSZ-*kHz.wav, capturing the date token YYYYMMDD.
+# Defined here so the default is visible without importing torch.
+_AVES_BASE_BIO_URL = (
+    "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-bio.torchaudio.pt"
+)
+
 _WAV_DATE_RE = re.compile(r"MARS-(\d{4})(\d{2})(\d{2})T")
 
 
@@ -57,7 +54,7 @@ def run(
     window_sec: float = typer.Option(2.0, help="Window duration in seconds."),
     hop_sec: Optional[float] = typer.Option(None, help="Window hop in seconds (default = window_sec)."),
     sample_rate: int = typer.Option(16_000, help="Target sample rate for resampling."),
-    model: str = typer.Option(AVES_BASE_BIO, help="URL to a TorchAudio AVES checkpoint (.pt)."),
+    model: str = typer.Option(_AVES_BASE_BIO_URL, help="URL to a TorchAudio AVES checkpoint (.pt)."),
     pooling: str = typer.Option("mean", help="Embedding pooling: 'mean' or 'max'."),
     umap_components: int = typer.Option(2, help="UMAP output dimensions."),
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
@@ -70,6 +67,14 @@ def run(
     With --score-dir: reads HWSD score files matched by date from the WAV
     filename and only extracts windows where score >= --score-threshold.
     """
+    # Heavy imports deferred so --help is instant.
+    import numpy as np
+    from hbws_clustering.clustering import HdbscanClusterer
+    from hbws_clustering.embedding import AvesEmbedder
+    from hbws_clustering.pipeline import ClusteringPipeline
+    from hbws_clustering.reduction import UmapReducer
+    from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower
+
     inner_windower = AudioWindower(window_sec=window_sec, hop_sec=hop_sec, target_sr=sample_rate)
 
     if score_dir is not None:

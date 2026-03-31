@@ -1,4 +1,4 @@
-# hbws-clustering
+# hbwsc
 
 Humpback whale vocalization clustering pipeline using [AVES](https://github.com/earthspecies/avex)
 bioacoustic embeddings, UMAP dimensionality reduction, and HDBSCAN clustering.
