@@ -76,12 +76,16 @@ class AvesEmbedder:
 
     def embed_windows(self, windows: Sequence[Window]) -> np.ndarray:
         """Return an (N, D) float32 array of embeddings for *windows*."""
+        from tqdm import tqdm
+
         self._load()
         all_embeddings: list[np.ndarray] = []
 
-        for batch_start in range(0, len(windows), self.batch_size):
-            batch = list(windows[batch_start : batch_start + self.batch_size])
-            all_embeddings.append(self._embed_batch(batch))
+        with tqdm(total=len(windows), unit="win", desc="AVES embeddings") as bar:
+            for batch_start in range(0, len(windows), self.batch_size):
+                batch = list(windows[batch_start : batch_start + self.batch_size])
+                all_embeddings.append(self._embed_batch(batch))
+                bar.update(len(batch))
 
         return np.concatenate(all_embeddings, axis=0)
 

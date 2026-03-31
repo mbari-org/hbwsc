@@ -12,6 +12,7 @@ dependencies = [
     "soundfile>=0.13.1",
     "torch>=2.11.0",
     "torchaudio>=2.11.0",
+    "tqdm>=4.67.3",
     "typer>=0.9",
     "umap-learn>=0.5.11",
 ]
