@@ -71,7 +71,8 @@ just plot-umap results.npz     # saves results.png
 
 | Option | Default | Description |
 |---|---|---|
-| `--score-dir` | — | Base directory for HWSD score `.npy` files; enables score-guided windowing |
+| `--score-dir` | — | Base directory for HWSD score `.npy` files; score file auto-located from WAV filename date |
+| `--score-file` | — | Explicit path to a score `.npy` file; use when filename doesn't follow the MARS convention (requires exactly one audio file) |
 | `--score-threshold` | `0.7` | Minimum HWSD score to include a second |
 | `--window-sec` | `2.0` | Window duration in seconds |
 | `--hop-sec` | `window-sec` | Step between windows (overlap when < `window-sec`) |
@@ -79,8 +80,9 @@ just plot-umap results.npz     # saves results.png
 | `--model` | `AVES_BASE_BIO` (GCS URL) | URL to a TorchAudio AVES checkpoint (`.pt`) |
 | `--pooling` | `mean` | Embedding pooling: `mean` or `max` |
 | `--batch-size` | `16` | AVES inference batch size — increase to 64–128 on GPU |
-| `--umap-components` | `2` | UMAP output dimensions |
-| `--umap-neighbors` | `15` | UMAP `n_neighbors` |
+| `--umap-components` | `2` | UMAP output dimensions for visualization (2-D scatter plot) |
+| `--umap-cluster-components` | `10` | UMAP output dimensions fed to HDBSCAN; set equal to `--umap-components` to skip the second UMAP pass |
+| `--umap-neighbors` | `15` | UMAP `n_neighbors` (shared by both UMAP passes) |
 | `--min-cluster-size` | `5` | HDBSCAN `min_cluster_size` |
 | `--embeddings-cache` / `-e` | — | Cache AVES embeddings to `.npy`; reloaded on subsequent runs |
 | `--output` / `-o` | — | Save results as `.npz` file |
@@ -112,14 +114,24 @@ Nothing to tune here except `--batch-size` for throughput (default 16 on CPU; 64
 
 ### Step 3 — UMAP
 
-**`--umap-components`** (default `2`)
-Projection target dimensionality. 2 is for visualization. If you want clustering to operate in a
-richer space you could use 5–10 and skip the 2-D scatter plot, or run two passes: 2-D for
-visualization and higher-D to feed HDBSCAN.
+The pipeline runs two independent UMAP projections by default:
+
+- **`--umap-cluster-components`** (default `10`) — high-dimensional projection fed to HDBSCAN.
+  10 dimensions retains far more structure than 2-D while still being much cheaper to cluster than
+  the raw 768-D embeddings. Values in the 5–20 range are reasonable; higher gives the clusterer
+  more to work with but increases UMAP runtime.
+
+- **`--umap-components`** (default `2`) — 2-D projection used only for the scatter plot.
+  Visualization and clustering are purposely decoupled: the 2-D plot gives an intuitive picture
+  of the embedding space, but clustering on 2-D discards too much information.
+
+Set `--umap-cluster-components` equal to `--umap-components` (e.g., both `2`) to collapse back
+to a single UMAP pass — useful for quick experiments or when runtime is the bottleneck.
 
 **`--umap-neighbors`** (default `15`)
-Controls local vs. global structure. Small values (5–10) preserve fine local clusters; large
-values (30–50) pull the global shape together but may merge distinct call types (per the
+Controls local vs. global structure. Applies to both UMAP passes. Small values (5–10) preserve
+fine local clusters; large values (30–50) pull the global shape together but may merge distinct
+call types (per the
 [UMAP documentation](https://umap-learn.readthedocs.io/en/latest/parameters.html)). The default
 of 15 is a reasonable starting point; tuning is worthwhile once you have a baseline.
 

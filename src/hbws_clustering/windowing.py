@@ -135,6 +135,7 @@ class ScoreGuidedWindower:
         """
         if not isinstance(scores, np.ndarray):
             scores = np.load(scores)
+        scores = np.squeeze(scores)  # handle (N, 1) arrays from some exporters
 
         segments = self._high_score_segments(scores)
         if not segments:
@@ -147,6 +148,8 @@ class ScoreGuidedWindower:
             sr_native = f.samplerate
             for start_sec, end_sec in segments:
                 start_frame = int(start_sec * sr_native)
+                if start_frame >= f.frames:
+                    continue  # score file extends past end of audio
                 # read enough frames to cover at least one full window past end_sec
                 stop_frame = int((end_sec + self.windower.window_sec) * sr_native)
                 stop_frame = min(stop_frame, f.frames)

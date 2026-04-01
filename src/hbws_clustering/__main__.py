@@ -41,7 +41,17 @@ def run(
         help=(
             "Base directory for HWSD score files "
             "(e.g. /mnt/PAM_Analysis/GoogleHumpbackModel/Scores). "
+            "Score file is located automatically from the WAV filename date. "
             "When provided, only high-confidence windows are extracted."
+        ),
+    ),
+    score_file: Optional[Path] = typer.Option(
+        None,
+        "--score-file",
+        help=(
+            "Explicit path to a score .npy file. "
+            "Use instead of --score-dir when the WAV filename does not follow "
+            "the MARS-YYYYMMDDTHHMMSSZ convention. Requires exactly one audio file."
         ),
     ),
     score_threshold: float = typer.Option(
@@ -55,7 +65,15 @@ def run(
     model: str = typer.Option(_AVES_BASE_BIO_URL, help="URL to a TorchAudio AVES checkpoint (.pt)."),
     pooling: str = typer.Option("mean", help="Embedding pooling: 'mean' or 'max'."),
     batch_size: int = typer.Option(16, help="AVES inference batch size. Increase (e.g. 64) on GPU."),
-    umap_components: int = typer.Option(2, help="UMAP output dimensions."),
+    umap_components: int = typer.Option(2, help="UMAP dimensions for visualization (2-D scatter plot)."),
+    umap_cluster_components: int = typer.Option(
+        10,
+        "--umap-cluster-components",
+        help=(
+            "UMAP dimensions for HDBSCAN clustering. "
+            "Higher than 2 preserves more structure for the clusterer."
+        ),
+    ),
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
     min_cluster_size: int = typer.Option(5, help="HDBSCAN min_cluster_size."),
     embeddings_cache: Optional[Path] = typer.Option(
@@ -68,9 +86,9 @@ def run(
 ) -> None:
     """Cluster humpback whale vocalizations in AUDIO_FILES.
 
-    Without --score-dir: windows every second of every file.\n
-    With --score-dir: reads HWSD score files matched by date from the WAV
-    filename and only extracts windows where score >= --score-threshold.
+    Without --score-dir/--score-file: windows every second of every file.\n
+    With --score-dir: reads HWSD score files matched by date from the WAV filename.\n
+    With --score-file: uses the given score file directly (one audio file only).
     """
     # Heavy imports deferred so --help is instant.
     import numpy as np
@@ -81,21 +99,37 @@ def run(
     from hbws_clustering.reduction import UmapReducer
     from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower
 
+    if score_dir is not None and score_file is not None:
+        raise typer.BadParameter("--score-dir and --score-file are mutually exclusive.")
+    if score_file is not None and len(audio_files) != 1:
+        raise typer.BadParameter("--score-file requires exactly one audio file.")
+
     inner_windower = AudioWindower(window_sec=window_sec, hop_sec=hop_sec, target_sr=sample_rate)
 
-    if score_dir is not None:
+    use_scores = score_dir is not None or score_file is not None
+    if use_scores:
         windower = ScoreGuidedWindower(windower=inner_windower, threshold=score_threshold)
     else:
         windower = inner_windower
 
+    reducer_viz = UmapReducer(n_components=umap_components, n_neighbors=umap_neighbors)
+    if umap_cluster_components != umap_components:
+        reducer_cluster = UmapReducer(n_components=umap_cluster_components, n_neighbors=umap_neighbors)
+    else:
+        reducer_cluster = None
+
     pipe = ClusteringPipeline(
         windower=windower,
         embedder=AvesEmbedder(model_url=model, pooling=pooling, batch_size=batch_size),
-        reducer=UmapReducer(n_components=umap_components, n_neighbors=umap_neighbors),
+        reducer=reducer_viz,
+        reducer_cluster=reducer_cluster,
         clusterer=HdbscanClusterer(min_cluster_size=min_cluster_size),
     )
 
-    if score_dir is not None:
+    if score_file is not None:
+        pairs = [(audio_files[0], score_file)]
+        result = pipe.run_scored(pairs, embeddings_cache=embeddings_cache)
+    elif score_dir is not None:
         pairs = [(f, _score_path(f, score_dir)) for f in audio_files]
         result = pipe.run_scored(pairs, embeddings_cache=embeddings_cache)
     else:
@@ -112,6 +146,7 @@ def run(
             labels=result.labels,
             probabilities=result.probabilities,
             reduced=result.reduced,
+            reduced_cluster=result.reduced_cluster,
             embeddings=result.embeddings,
             start_secs=np.array([w.start_sec for w in result.windows]),
             source_files=np.array([str(w.source_file) for w in result.windows]),

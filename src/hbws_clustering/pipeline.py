@@ -24,7 +24,8 @@ class PipelineResult:
 
     windows: list[Window]
     embeddings: np.ndarray  # (N, D)
-    reduced: np.ndarray  # (N, n_components)
+    reduced: np.ndarray  # (N, 2) — 2-D UMAP projection for visualization
+    reduced_cluster: np.ndarray  # (N, k) — k-D UMAP projection used for clustering
     labels: np.ndarray  # (N,) int
     probabilities: np.ndarray  # (N,) float
 
@@ -36,6 +37,11 @@ class PipelineResult:
 @dataclass
 class ClusteringPipeline:
     """Orchestrate windowing → AVES embedding → UMAP → HDBSCAN.
+
+    Two UMAP passes are supported: ``reducer_cluster`` (high-dimensional, fed to
+    HDBSCAN) and ``reducer`` (2-D, for visualization).  When ``reducer_cluster``
+    is ``None`` the single ``reducer`` is used for both clustering and plotting —
+    which is only appropriate when ``reducer.n_components`` is high enough.
 
     All component configurations can be overridden at construction time.
 
@@ -57,6 +63,7 @@ class ClusteringPipeline:
     windower: AudioWindower | ScoreGuidedWindower = field(default_factory=AudioWindower)
     embedder: AvesEmbedder = field(default_factory=lambda: AvesEmbedder(model_url=AVES_BASE_BIO))
     reducer: UmapReducer = field(default_factory=UmapReducer)
+    reducer_cluster: UmapReducer | None = None  # high-D UMAP for clustering; None → use reducer
     clusterer: HdbscanClusterer = field(default_factory=HdbscanClusterer)
     verbose: bool = True
 
@@ -116,12 +123,23 @@ class ClusteringPipeline:
         embeddings = self._load_or_compute_embeddings(windows, embeddings_cache)
         self._log(f"  Embeddings shape: {embeddings.shape}")
 
-        self._log("Step 3/4: UMAP dimensionality reduction...")
-        reduced = self.reducer.fit_transform(embeddings)
-        self._log(f"  Reduced shape: {reduced.shape}")
+        if self.reducer_cluster is not None:
+            self._log(
+                f"Step 3/4: UMAP dimensionality reduction ({self.reducer_cluster.n_components}-D for clustering,"
+                f" {self.reducer.n_components}-D for visualization)..."
+            )
+            reduced_cluster = self.reducer_cluster.fit_transform(embeddings)
+            self._log(f"  Cluster-space shape: {reduced_cluster.shape}")
+            reduced = self.reducer.fit_transform(embeddings)
+            self._log(f"  Visualization shape: {reduced.shape}")
+        else:
+            self._log(f"Step 3/4: UMAP dimensionality reduction ({self.reducer.n_components}-D)...")
+            reduced = self.reducer.fit_transform(embeddings)
+            reduced_cluster = reduced
+            self._log(f"  Reduced shape: {reduced.shape}")
 
         self._log("Step 4/4: HDBSCAN clustering...")
-        self.clusterer.fit(reduced)
+        self.clusterer.fit(reduced_cluster)
         labels = self.clusterer.labels
         probabilities = self.clusterer.probabilities
         summary = self.clusterer.cluster_summary()
@@ -133,6 +151,7 @@ class ClusteringPipeline:
             windows=windows,
             embeddings=embeddings,
             reduced=reduced,
+            reduced_cluster=reduced_cluster,
             labels=labels,
             probabilities=probabilities,
         )

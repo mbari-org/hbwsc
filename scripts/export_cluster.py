@@ -1,17 +1,16 @@
 """Export audio snippets for windows belonging to a given cluster.
 
 Usage:
-    python scripts/export_cluster.py <npz> <cluster_label> [out_dir] [n_samples] [window_sec]
+    python scripts/export_cluster.py <npz> <cluster_label> <n_samples> <window_sec> [out_dir]
 
 Arguments:
     npz            Path to a results .npz file produced by hbws-cluster.
     cluster_label  Integer cluster label to export (-1 for noise).
-    out_dir        Directory to write WAV files to.
+    n_samples      Maximum number of windows to export. Pass 0 to export all.
+    window_sec     Duration of each exported snippet in seconds.
+                   Must match the --window-sec value used when the pipeline was run.
+    out_dir        Directory to write WAV files to (optional).
                    Defaults to output/cluster_<label>/.
-    n_samples      Maximum number of windows to export (default: 10).
-                   Pass 0 to export all.
-    window_sec     Duration of each exported snippet in seconds (default: 2.0).
-                   Must match the value used when the pipeline was run.
 
 Notes:
     Hydrophone recordings have very low signal levels relative to digital full
@@ -28,11 +27,15 @@ import soundfile as sf
 
 # --- parse args ---------------------------------------------------------------
 
-npz_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("output/results_from_scored.npz")
-cluster_label = int(sys.argv[2]) if len(sys.argv) > 2 else 0
-out_dir = Path(sys.argv[3]) if len(sys.argv) > 3 else Path(f"output/cluster_{cluster_label}")
-n_samples = int(sys.argv[4]) if len(sys.argv) > 4 else 10
-window_sec = float(sys.argv[5]) if len(sys.argv) > 5 else 2.0
+if len(sys.argv) < 5:
+    print(__doc__)
+    sys.exit(1)
+
+npz_path = Path(sys.argv[1])
+cluster_label = int(sys.argv[2])
+n_samples = int(sys.argv[3])
+window_sec = float(sys.argv[4])
+out_dir = Path(sys.argv[5]) if len(sys.argv) > 5 else Path(f"output/cluster_{cluster_label}")
 
 TARGET_PEAK = 10 ** (-3 / 20)  # -3 dBFS
 
