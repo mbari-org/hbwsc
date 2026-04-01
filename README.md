@@ -10,6 +10,13 @@ to restrict the clustering to high-confidence whale song regions.
 
 **Pipeline:** audio files → score-guided windows → AVES embeddings → UMAP projection → HDBSCAN clusters
 
+> [!NOTE]
+> This is an exploratory exercise!
+> The documentation and parameter guidance in this README are the result of exchanges
+> with Claude (Anthropic) while building the code and conducting initial exploration.
+> Various aspects have been revised during these exchanges,
+> but no exhaustive review or independent validation has been performed.
+
 ## Running
 
 Requires [uv](https://docs.astral.sh/uv/).
