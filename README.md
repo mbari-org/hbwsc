@@ -1,45 +1,42 @@
 # hbwsc
 
-Humpback whale vocalization clustering pipeline using [AVES](https://github.com/earthspecies/avex)
+Humpback whale vocalization analysis using [AVES](https://github.com/earthspecies/aves)
 bioacoustic embeddings, UMAP dimensionality reduction, and HDBSCAN clustering.
 
-Optionally integrates with the
+Integrates with the
 [NOAA/Google Humpback Whale Song Detector](https://www.kaggle.com/models/google/humpback-whale/tensorFlow2/humpback-whale/1),
-as exercised via <https://github.com/mbari-org/humpback-whale-song-detection>,
-to restrict analysis to high-confidence whale song regions.
+as exercised with <https://github.com/mbari-org/humpback-whale-song-detection>,
+to restrict the clustering to high-confidence whale song regions.
 
-**Pipeline:** audio files → (score-guided) windows → AVES embeddings → UMAP projection → HDBSCAN clusters
+**Pipeline:** audio files → score-guided windows → AVES embeddings → UMAP projection → HDBSCAN clusters
 
-## Installation
+## Running
 
 Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/mbari-org/hbws_clustering
-cd hbws_clustering
+git clone https://github.com/mbari-org/hbwsc
+cd hbwsc
 uv sync
 ```
 
 > **First run:** `AvesEmbedder` downloads the AVES checkpoint (~360 MB) from Google Cloud Storage
 > on first use and caches it under `$(python -c "import torch; print(torch.hub.get_dir())")/aves/`.
-> Subsequent runs are instant.
-
-## CLI usage
 
 ### Plain windowing
 
 Windows every second of every file — useful for short recordings or initial exploration.
 
 ```bash
-# Single file, all defaults (2 s windows, no overlap, AVES-base-bio, 2-D UMAP)
+# Single file, all defaults
 uv run hbws-cluster MARS-20260330T000000Z-16kHz.wav
 
 # Multiple files, 50% overlap, custom cluster size, save results
 uv run hbws-cluster \
   MARS-20260330T000000Z-16kHz.wav \
   MARS-20260331T000000Z-16kHz.wav \
-  --window-sec 2.0 \
-  --hop-sec 1.0 \
+  --window-sec 0.5 \
+  --hop-sec 0.25 \
   --min-cluster-size 10 \
   --output results.npz
 ```
@@ -47,9 +44,9 @@ uv run hbws-cluster \
 ### Score-guided windowing
 
 Pass `--score-dir` to use pre-computed HWSD detection scores. The score file for each WAV is
-located automatically from the filename date (`MARS-YYYYMMDDTHHMMSSZ-16kHz.wav` →
-`{score-dir}/YYYY/MM/Scores-YYYYMMDD.npy`). Only seconds where the detector score exceeds
-`--score-threshold` (default `0.7`) are extracted.
+located automatically from the filename date
+(`MARS-YYYYMMDDTHHMMSSZ-16kHz.wav` → `{score-dir}/YYYY/MM/Scores-YYYYMMDD.npy`).
+Only seconds where the detector score exceeds `--score-threshold` (default `0.7`) are extracted.
 
 ```bash
 uv run hbws-cluster \
@@ -63,23 +60,11 @@ uv run hbws-cluster \
   --output results.npz
 ```
 
-The 4+ GB day files are never loaded into memory in full — only the relevant slices are read.
-
 ### Inspect and plot results
 
 ```bash
 just inspect-npz results.npz   # per-cluster count table with UMAP centroids
 just plot-umap results.npz     # saves results.png
-```
-
-Or directly:
-
-```python
-import numpy as np
-
-r = np.load("output/results.npz")
-print(r["labels"])  # cluster ID per window (-1 = noise)
-print(r["reduced"])  # (N, 2) UMAP coordinates
 ```
 
 ### All CLI options
@@ -100,34 +85,30 @@ print(r["reduced"])  # (N, 2) UMAP coordinates
 | `--embeddings-cache` / `-e` | — | Cache AVES embeddings to `.npy`; reloaded on subsequent runs |
 | `--output` / `-o` | — | Save results as `.npz` file |
 
-## Parameter guide
+## Parameters
 
 ### Step 1 — Score-guided windowing
 
-**`--score-threshold`** (default `0.7`)
-The HWSD scores are one value per second in [0, 1]. Only seconds at or above the threshold are
-kept. Raising it gives fewer, higher-confidence windows; lowering it includes more borderline
-material.
+**`--score-threshold`**
+The HWSD scores are one value per second in [0, 1]. Only seconds at or above the threshold are kept.
 
-**`--window-sec`** (default `2.0`)
+**`--window-sec`**
 The fundamental unit of analysis. Every window is exactly this many seconds of audio and produces
 exactly one embedding vector. This choice involves a tradeoff:
 - Too short: may clip individual calls; AVES has less acoustic context to work with
 - Too long: may smear different call types together in one window; embeddings become less specific
 - The right value depends on the temporal scale of the structure you want to cluster
-  (individual units vs. phrases) and should be informed by domain knowledge and listening to the data
+  and should be informed by domain knowledge and listening to the data
 
 **`--hop-sec`** (default `window-sec`, i.e. no overlap)
-Step between successive window starts. At `hop-sec=1.0` with `window-sec=2.0` windows overlap by
-50%, so each point in the audio appears in roughly two windows. More overlap gives finer temporal
-coverage but also more redundancy — adjacent windows will be very similar, which can inflate
-cluster sizes without adding new information.
+Step between successive window starts. More overlap gives finer temporal coverage but also more redundancy:
+adjacent windows will be very similar, which can inflate cluster sizes without adding new information.
 
 ### Step 2 — AVES embeddings
 
 Each window → one 768-dimensional vector. AVES was pretrained on bioacoustic audio so it captures
-acoustic structure meaningful to animal vocalizations. Nothing to tune here except `--batch-size`
-for throughput (default 16 on CPU; 64–128 on GPU).
+acoustic structure meaningful to animal vocalizations.
+Nothing to tune here except `--batch-size` for throughput (default 16 on CPU; 64–128 on GPU).
 
 ### Step 3 — UMAP
 
@@ -164,7 +145,8 @@ which means listening to a few windows from each cluster.
 ## Intended analysis levels
 
 The clustering pipeline is intended to support the definition of a **unit vocabulary**,
-that is, the set of atomic elements that can characterize humpback whale song.
+that is, the set of atomic elements that can be used as a basis to characterize humpback whale song.
+
 The window length should be chosen such that it allows to capture the smallest unit
 in the training data.
 
