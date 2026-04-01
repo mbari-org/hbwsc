@@ -175,6 +175,60 @@ HDBSCAN's soft membership probabilities (`result.probabilities`, saved in the `.
 per-window confidence score that can inform boundary decisions when unit-type assignment is
 ambiguous.
 
+## Hyperparameter tuning workflow
+
+### Role of each component
+
+**AVES** does the acoustic heavy lifting: it converts each audio window into a
+768-dimensional vector where acoustic similarity is reflected in geometric proximity.
+Because it was pretrained on bioacoustic audio, there is good reason to expect it encodes
+features meaningful to animal vocalizations. The quality of the clustering depends directly
+on how well AVES captures the acoustic structure relevant to the target call types.
+
+**UMAP** addresses a practical necessity: HDBSCAN breaks down in 768 dimensions due to the
+curse of dimensionality (distances become nearly indistinguishable, so no density structure
+can be found). UMAP compresses the embedding space while preserving neighborhood relationships,
+giving HDBSCAN a tractable input. Visualization (2-D) and clustering (default 10-D) are
+intentionally decoupled — the 2-D projection gives an intuitive picture of the space but
+discards too much information to cluster on directly.
+
+**HDBSCAN** discovers clusters without requiring the number of clusters to be specified in
+advance, and without assuming spherical shapes. The number of clusters is an output, not an
+input — which is the appropriate posture when the unit vocabulary is unknown.
+
+### Tuning `--min-cluster-size`
+
+`min_cluster_size` is the primary tuning parameter. It sets a floor on what counts as a
+real cluster: anything smaller is labeled noise. It encodes a prior about the minimum
+prevalence of a unit type worth retaining in the vocabulary.
+
+The specific value is not knowable in advance without ground truth, but it does not need to
+be pinned precisely. The intended workflow is:
+
+1. **Sweep** a range of candidate values (e.g. with `scripts/sweep.py`) and examine how
+   cluster count, noise fraction, and DBCV vary.
+2. **Identify the stable region** — values where DBCV is positive and cluster count is
+   plausible for the recording (a single song session is unlikely to contain dozens of
+   distinct unit types).
+3. **Validate acoustically** — listen to samples from each cluster (e.g. with
+   `scripts/export_cluster.py`). If two clusters sound like the same unit type, raise
+   `min_cluster_size`. If a cluster sounds like a mixture, lower it.
+
+Domain judgment makes the final call; the sweep narrows the search to a small set of
+candidates worth listening to.
+
+### Choosing a clustering metric
+
+The sweep script reports **DBCV** (Density-Based Clustering Validation), which measures
+how compact and well-separated clusters are in terms of density. It is the appropriate
+metric here because HDBSCAN is density-based and finds clusters of arbitrary shape —
+classical metrics such as inertia, silhouette score, or Davies-Bouldin implicitly assume
+spherical clusters and would give misleading guidance in this setting.
+
+DBCV range is [-1, 1]: values near 1 indicate tight, well-separated clusters; negative
+values indicate that cluster boundaries cut through dense regions (a sign of over- or
+under-fragmentation).
+
 ## GPU support
 
 The embedder auto-detects CUDA (`"cuda" if torch.cuda.is_available() else "cpu"`), so no code
