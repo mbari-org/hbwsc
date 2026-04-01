@@ -11,9 +11,7 @@ import typer
 app = typer.Typer(help="Humpback whale vocalization clustering via AVES + UMAP + HDBSCAN.")
 
 # Defined here so the default is visible without importing torch.
-_AVES_BASE_BIO_URL = (
-    "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-bio.torchaudio.pt"
-)
+_AVES_BASE_BIO_URL = "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-bio.torchaudio.pt"
 
 _WAV_DATE_RE = re.compile(r"MARS-(\d{4})(\d{2})(\d{2})T")
 
@@ -61,7 +59,9 @@ def run(
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
     min_cluster_size: int = typer.Option(5, help="HDBSCAN min_cluster_size."),
     embeddings_cache: Optional[Path] = typer.Option(
-        None, "--embeddings-cache", "-e",
+        None,
+        "--embeddings-cache",
+        "-e",
         help="Path to a .npy file for caching AVES embeddings. Loaded if it exists, saved otherwise.",
     ),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Save results as .npz file."),
@@ -74,6 +74,7 @@ def run(
     """
     # Heavy imports deferred so --help is instant.
     import numpy as np
+
     from hbws_clustering.clustering import HdbscanClusterer
     from hbws_clustering.embedding import AvesEmbedder
     from hbws_clustering.pipeline import ClusteringPipeline

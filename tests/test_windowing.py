@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from hbws_clustering.windowing import AudioWindower, Window
+from hbws_clustering.windowing import AudioWindower
 
 
 def make_sine(duration_sec: float = 5.0, sr: int = 16_000, freq: float = 440.0) -> np.ndarray:

@@ -34,3 +34,23 @@ inspect-npz npz="output/results.npz":
 
 plot-umap npz="output/results.npz" out="output/results.png":
     uv run python scripts/plot_umap.py {{ npz }} {{ out }}
+
+# Run tests
+test *options="":
+    uv run pytest {{options}}
+
+# Format source code
+format:
+    uv run ruff format
+
+# Check source formatting
+format-check:
+    uv run ruff format --check
+
+# Lint source code
+lint:
+    uv run ruff check --fix
+
+# Lint check
+lint-check:
+    uv run ruff check

@@ -8,10 +8,10 @@ from typing import Sequence
 
 import numpy as np
 
-from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower, Window
-from hbws_clustering.embedding import AvesEmbedder, AVES_BASE_BIO
-from hbws_clustering.reduction import UmapReducer
 from hbws_clustering.clustering import HdbscanClusterer
+from hbws_clustering.embedding import AVES_BASE_BIO, AvesEmbedder
+from hbws_clustering.reduction import UmapReducer
+from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower, Window
 
 # Pair of (audio_path, scores) accepted by run_scored.
 # scores may be a numpy array or a path to a .npy file.
@@ -23,10 +23,10 @@ class PipelineResult:
     """Holds all outputs produced by a pipeline run."""
 
     windows: list[Window]
-    embeddings: np.ndarray       # (N, D)
-    reduced: np.ndarray          # (N, n_components)
-    labels: np.ndarray           # (N,) int
-    probabilities: np.ndarray    # (N,) float
+    embeddings: np.ndarray  # (N, D)
+    reduced: np.ndarray  # (N, n_components)
+    labels: np.ndarray  # (N,) int
+    probabilities: np.ndarray  # (N,) float
 
     def cluster_summary(self) -> dict[int, int]:
         unique, counts = np.unique(self.labels, return_counts=True)
@@ -108,9 +108,7 @@ class ClusteringPipeline:
 
         return self._run_from_windows(windows, embeddings_cache)
 
-    def _run_from_windows(
-        self, windows: list[Window], embeddings_cache: Path | None = None
-    ) -> PipelineResult:
+    def _run_from_windows(self, windows: list[Window], embeddings_cache: Path | None = None) -> PipelineResult:
         if not windows:
             raise ValueError("No windows extracted — check audio paths and window/score settings.")
 
@@ -139,16 +137,11 @@ class ClusteringPipeline:
             probabilities=probabilities,
         )
 
-    def _load_or_compute_embeddings(
-        self, windows: list[Window], cache: Path | None
-    ) -> np.ndarray:
+    def _load_or_compute_embeddings(self, windows: list[Window], cache: Path | None) -> np.ndarray:
         if cache is not None and cache.exists():
             embeddings = np.load(cache)
             if embeddings.shape[0] != len(windows):
-                self._log(
-                    f"  WARNING: cache has {embeddings.shape[0]} rows but "
-                    f"{len(windows)} windows — recomputing."
-                )
+                self._log(f"  WARNING: cache has {embeddings.shape[0]} rows but {len(windows)} windows — recomputing.")
             else:
                 self._log(f"  Loaded from cache: {cache}")
                 return embeddings

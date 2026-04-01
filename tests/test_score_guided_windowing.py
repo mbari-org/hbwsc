@@ -1,16 +1,12 @@
 """Tests for ScoreGuidedWindower."""
 
-import io
-import struct
 import tempfile
 import wave
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower
-
 
 SR = 16_000
 

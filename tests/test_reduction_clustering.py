@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from hbws_clustering.reduction import UmapReducer
 from hbws_clustering.clustering import HdbscanClusterer
+from hbws_clustering.reduction import UmapReducer
 
 
 def make_blobs(n: int = 200, d: int = 32, seed: int = 0) -> np.ndarray:

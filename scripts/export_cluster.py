@@ -49,10 +49,7 @@ def peak_normalize(audio: np.ndarray) -> np.ndarray:
 r = np.load(npz_path, allow_pickle=False)
 
 if "start_secs" not in r or "source_files" not in r:
-    print(
-        "ERROR: npz is missing timestamp data.\n"
-        "Re-run the pipeline with the current version to generate a new .npz."
-    )
+    print("ERROR: npz is missing timestamp data.\nRe-run the pipeline with the current version to generate a new .npz.")
     sys.exit(1)
 
 labels = r["labels"]

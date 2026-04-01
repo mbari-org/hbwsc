@@ -15,10 +15,10 @@ __all__ = [
 # so that importing this package (e.g. via the CLI entry point) does not pull
 # in torch / torchaudio / librosa / umap / hdbscan at startup.
 _lazy: dict[str, str] = {
-    "AudioWindower":    "hbws_clustering.windowing",
+    "AudioWindower": "hbws_clustering.windowing",
     "ScoreGuidedWindower": "hbws_clustering.windowing",
-    "AvesEmbedder":     "hbws_clustering.embedding",
-    "UmapReducer":      "hbws_clustering.reduction",
+    "AvesEmbedder": "hbws_clustering.embedding",
+    "UmapReducer": "hbws_clustering.reduction",
     "HdbscanClusterer": "hbws_clustering.clustering",
     "ClusteringPipeline": "hbws_clustering.pipeline",
 }
@@ -27,6 +27,7 @@ _lazy: dict[str, str] = {
 def __getattr__(name: str):
     if name in _lazy:
         import importlib
+
         mod = importlib.import_module(_lazy[name])
         obj = getattr(mod, name)
         # Cache in module globals so subsequent accesses are a plain dict lookup.

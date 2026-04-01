@@ -17,7 +17,6 @@ import torchaudio
 
 from hbws_clustering.windowing import Window
 
-
 # TorchAudio-format checkpoints published by the Earth Species Project.
 AVES_BASE_BIO = "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-bio.torchaudio.pt"
 AVES_BASE_ALL = "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-all.torchaudio.pt"
@@ -91,9 +90,7 @@ class AvesEmbedder:
 
     def _embed_batch(self, batch: list[Window]) -> np.ndarray:
         # Stack waveforms; all windows are the same length (AudioWindower pads them)
-        waveforms = torch.stack(
-            [torch.from_numpy(w.audio) for w in batch]
-        ).to(self.device)  # (B, T)
+        waveforms = torch.stack([torch.from_numpy(w.audio) for w in batch]).to(self.device)  # (B, T)
 
         with torch.no_grad():
             # Returns (features, lengths): features is (B, T', D)

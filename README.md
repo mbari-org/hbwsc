@@ -163,19 +163,19 @@ which means listening to a few windows from each cluster.
 
 ## Intended analysis levels
 
-The clustering pipeline is designed to operate at the level of **units**, that is,
-the atomic elements of humpback song. This clustering is intended to serve as a basis
-to define such units, at least within the context of the recording site and conditions.
+The clustering pipeline is intended to support the definition of a **unit vocabulary**,
+that is, the set of atomic elements that can characterize humpback whale song.
 The window length should be chosen such that it allows to capture the smallest unit
-in that context.
+in the training data.
 
-Once good quality unit-type labels are obtained, higher-level structure can be recovered.
-While the score-guided windowing discards low-confidence regions, the temporal gaps are
-structural, that is, inter-unit, inter-phrase, and inter-song silences carry information
+Once good quality unit types are obtained according to plausible clustering metrics,
+higher-level structure can be recovered.
+
+While the score-guided windowing discards low-confidence detection regions, the temporal gaps
+are structural, that is, inter-unit, inter-phrase, and inter-song silences carry information
 needed for segmentation at higher levels. Unit clustering can be done entirely on detected
-regions, but phrase/theme/song analysis will require working on the full timeline, combining
-the unit-type labels and timestamps from the `.npz` with the gap information available in
-the score `.npy` files.
+regions, but phrase/theme/song analysis will require combining the unit-type labels and
+timestamps with the gap information available in the score files.
 
 HDBSCAN's soft membership probabilities (`result.probabilities`, saved in the `.npz`) give a
 per-window confidence score that can inform boundary decisions when unit-type assignment is
@@ -284,15 +284,12 @@ hbws_clustering/
 
 ## Design notes
 
-- **AVES model:** originally from the [Earth Species Project](https://github.com/earthspecies/aves),
-  now maintained as part of [avex](https://github.com/earthspecies/avex). Checkpoints are loaded
-  directly from Google Cloud Storage via TorchAudio (no `avex` install required — `avex` pulls in
-  TensorFlow/Keras for its other backends and is not worth the dependency cost here).
+- **AVES model:** maintained as part of [avex](https://github.com/earthspecies/avex). 
+  Checkpoints are loaded directly from Google Cloud Storage via TorchAudio.
   Two variants are available via module-level constants:
     - `AVES_BASE_BIO` — pretrained on bioacoustic audio (default, recommended for wildlife)
     - `AVES_BASE_ALL` — pretrained on a broader audio corpus
-- **Score-guided windowing:** uses HWSD per-second scores (`Scores-YYYYMMDD.npy`) to skip ambient
-  noise. Day files are read with `soundfile` seek — the 4+ GB WAV is never fully loaded into memory.
+- **Score-guided windowing:** uses HWSD per-second scores (`Scores-YYYYMMDD.npy`)
 - **Pooling:** mean-pools AVES frame embeddings → one fixed-size vector per window. `max` also supported.
 - **Windowing:** configurable `window_sec` / `hop_sec`, resamples to 16 kHz, zero-pads the final
   partial window when it meets `min_window_sec`.
@@ -302,8 +299,6 @@ hbws_clustering/
 ## Development
 
 ```bash
-uv run pytest -v                                  # all tests
-uv run pytest tests/test_windowing.py             # windowing only (fast, no GPU/network)
-uv run pytest tests/test_score_guided_windowing.py
-uv run ruff check src/                            # lint
+uv run pytest
+uv run ruff check src
 ```

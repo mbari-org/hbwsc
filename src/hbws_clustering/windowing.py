@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
 import librosa
+import numpy as np
 import soundfile as sf
 
 
@@ -14,7 +14,7 @@ import soundfile as sf
 class Window:
     """A single audio window with metadata."""
 
-    audio: np.ndarray          # shape (n_samples,), float32, mono
+    audio: np.ndarray  # shape (n_samples,), float32, mono
     sample_rate: int
     source_file: Path
     start_sec: float
@@ -154,9 +154,7 @@ class ScoreGuidedWindower:
                 f.seek(start_frame)
                 chunk = f.read(stop_frame - start_frame, dtype="float32", always_2d=False)
 
-                chunk_windows = self.windower.window_array(
-                    chunk, sr_native, source_file=audio_path
-                )
+                chunk_windows = self.windower.window_array(chunk, sr_native, source_file=audio_path)
                 # shift timestamps to be absolute within the day
                 for w in chunk_windows:
                     w.start_sec += start_sec
