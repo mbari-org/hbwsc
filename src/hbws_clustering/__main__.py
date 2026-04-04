@@ -69,10 +69,7 @@ def run(
     umap_cluster_components: int = typer.Option(
         10,
         "--umap-cluster-components",
-        help=(
-            "UMAP dimensions for HDBSCAN clustering. "
-            "Higher than 2 preserves more structure for the clusterer."
-        ),
+        help="UMAP dimensions for HDBSCAN clustering",
     ),
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
     min_cluster_size: int = typer.Option(5, help="HDBSCAN min_cluster_size."),

@@ -56,7 +56,6 @@ Results from that run:
 
 import argparse
 import csv
-import sys
 import time
 from pathlib import Path
 
@@ -89,12 +88,12 @@ def run_one(embeddings: np.ndarray, umap_dims: int, mcs: int, n_neighbors: int) 
 
     labels = clusterer.labels_
     n = len(labels)
-    unique = [l for l in np.unique(labels) if l >= 0]
+    unique = [lbl for lbl in np.unique(labels) if lbl >= 0]
     n_clusters = len(unique)
     noise_pct = 100.0 * (labels == -1).sum() / n
 
     if n_clusters > 0:
-        sizes = [int((labels == l).sum()) for l in unique]
+        sizes = [int((labels == lbl).sum()) for lbl in unique]
         median_sz = int(np.median(sizes))
         min_sz = min(sizes)
         max_sz = max(sizes)
@@ -138,8 +137,19 @@ def main() -> None:
     print(f"UMAP n_neighbors:  {n_neighbors}")
     print(f"Total configs:     {len(dims_list) * len(mcs_list)}\n")
 
-    header = ["umap_dims", "mcs", "n_clusters", "noise_pct", "dbcv", "median_sz", "min_sz", "max_sz", "t_umap_s", "t_hdbscan_s"]
-    col_w =  [9,           5,     10,            10,          8,      10,          7,        7,        10,          12]
+    header = [
+        "umap_dims",
+        "mcs",
+        "n_clusters",
+        "noise_pct",
+        "dbcv",
+        "median_sz",
+        "min_sz",
+        "max_sz",
+        "t_umap_s",
+        "t_hdbscan_s",
+    ]
+    col_w = [9, 5, 10, 10, 8, 10, 7, 7, 10, 12]
 
     def fmt_row(row: dict) -> str:
         vals = [str(row[k]) for k in header]
