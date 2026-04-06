@@ -42,6 +42,18 @@ export-cluster npz cluster n window_sec out_dir="":
        {{ npz }} {{ cluster }} {{ n }} {{ window_sec }} \
        {{ if out_dir != "" { out_dir } else { "output/cluster_" + cluster } }}
 
+# Export N samples from every cluster into output/clusters_<stem>/cluster_*/
+export-all-clusters npz window_sec n="10":
+    uv run python scripts/export_all_clusters.py {{ npz }} {{ window_sec }} {{ n }}
+
+# Plot cluster labels over time (saves <stem>_timeline.png)
+plot-timeline npz:
+    uv run python scripts/plot_timeline.py {{ npz }}
+
+# Export Raven Pro selection table (saves <stem>_raven.txt)
+export-raven npz window_sec max_freq="8000":
+    uv run python scripts/export_raven_table.py {{ npz }} {{ window_sec }} "" {{ max_freq }}
+
 inspect-npz npz="output/results.npz":
     uv run python scripts/inspect_npz.py {{ npz }}
 
