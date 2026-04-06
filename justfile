@@ -51,8 +51,12 @@ plot-timeline npz:
     uv run python scripts/plot_timeline.py {{ npz }}
 
 # Export Raven Pro selection table (saves <stem>_raven.txt)
-export-raven npz window_sec max_freq="8000":
-    uv run python scripts/export_raven_table.py {{ npz }} {{ window_sec }} "" {{ max_freq }}
+export-raven npz window_sec:
+    uv run python scripts/export_raven_table.py {{ npz }} {{ window_sec }}
+
+# Merge consecutive same-cluster selections in a Raven table (saves <stem>_aggregate.txt)
+aggregate-raven raven_txt:
+    uv run python scripts/aggregate_raven.py {{ raven_txt }}
 
 inspect-npz npz="output/results.npz":
     uv run python scripts/inspect_npz.py {{ npz }}
