@@ -32,7 +32,7 @@ if noise_mask.any():
         zorder=1,
     )
 
-# Cluster points: one colour per cluster
+# Cluster points: one color per cluster
 palette = cm.tab10.colors
 for cid in cluster_ids:
     mask = labels == cid

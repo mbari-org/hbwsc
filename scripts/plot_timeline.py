@@ -1,4 +1,4 @@
-"""Plot the temporal sequence of cluster assignments as a colour strip.
+"""Plot the temporal sequence of cluster assignments as a color strip.
 
 Each window is shown as a coloured tick on a single horizontal line.
 Noise (-1) is shown in light grey. Colour indicates cluster.
@@ -82,6 +82,7 @@ def plot_segment(x_all, labels_all, x_min, x_max, out_path):
             zorder=2 if lbl >= 0 else 1,
             align="edge",
         )
+
     def fmt_hm(minutes, _pos=None):
         h, m = divmod(int(minutes), 60)
         return f"{h}:{m:02d}"
