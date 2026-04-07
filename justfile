@@ -64,6 +64,28 @@ inspect-npz npz="output/results.npz":
 plot-umap npz="output/results.npz" out="output/results.png":
     uv run python scripts/plot_umap.py {{ npz }} {{ out }}
 
+# Session-based workflow (reads parameters.yml from the session directory)
+
+# Create a new session directory with a template parameters.yml
+new-session dir:
+    uv run python scripts/session.py {{ dir }} init
+
+# Run the clustering pipeline for a session; mcs overrides parameters.yml
+run-session dir mcs="":
+    uv run python scripts/session.py {{ dir }} run {{ mcs }}
+
+# Run the hyperparameter sweep for a session (embeddings must exist)
+sweep-session dir:
+    uv run python scripts/session.py {{ dir }} sweep
+
+# Generate all analysis outputs for a session run (timeline, umap, raven, clusters)
+analyze-session dir mcs="":
+    uv run python scripts/session.py {{ dir }} analyze {{ mcs }}
+
+# Print cluster summary for a session run
+inspect-session dir mcs="":
+    uv run python scripts/session.py {{ dir }} inspect {{ mcs }}
+
 dev: test format lint
 
 # Run tests
