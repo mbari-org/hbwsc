@@ -2,6 +2,7 @@ output/
 *.npz
 *.wav
 *.npy
+timeline*.png
 
 # Python-generated files
 __pycache__/

@@ -57,7 +57,6 @@ Results from that run:
 
 import argparse
 import csv
-import os
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing.shared_memory import SharedMemory
@@ -143,7 +142,9 @@ def main() -> None:
     parser.add_argument("--mcs", default="50,100,200", help="Comma-separated min_cluster_size values")
     parser.add_argument("--neighbors", type=int, default=15, help="UMAP n_neighbors")
     parser.add_argument("--out", type=Path, default=None, help="Save results as CSV")
-    parser.add_argument("--workers", type=int, default=2, help="Parallel workers (default: 2; UMAP uses significant memory per worker)")
+    parser.add_argument(
+        "--workers", type=int, default=2, help="Parallel workers (default: 2; UMAP uses significant memory per worker)"
+    )
     args = parser.parse_args()
 
     embeddings = np.load(args.embeddings)
@@ -196,8 +197,9 @@ def main() -> None:
     try:
         initargs = (shm.name, emb_shape, emb_dtype.str)
         with ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker, initargs=initargs) as executor:
-            futures = {executor.submit(run_one, dims, mcs, n_neighbors): (dims, mcs)
-                       for dims in dims_list for mcs in mcs_list}
+            futures = {
+                executor.submit(run_one, dims, mcs, n_neighbors): (dims, mcs) for dims in dims_list for mcs in mcs_list
+            }
             for f in as_completed(futures):
                 row = f.result()
                 rows.append(row)

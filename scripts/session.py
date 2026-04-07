@@ -81,6 +81,9 @@ sweep_dims: "2,5,10,15,20,30"
 sweep_mcs: "50,100,200"
 sweep_workers: 2
 
+# Timeline plot segmentation (minutes per segment; omit or set to 0 for a single full plot)
+# timeline_segment_minutes: 10
+
 # Audio export (samples per cluster)
 n_cluster_samples: 10
 """
@@ -179,6 +182,7 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
 
     if embeddings_cache.exists() and npz.exists():
         import numpy as np
+
         r = np.load(npz, allow_pickle=False)
 
         # Embeddings sidecar (session root, shared across runs)
@@ -207,8 +211,7 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
             "n_clusters": int((unique >= 0).sum()),
             "n_noise": int(counts[unique == -1][0]) if -1 in unique else 0,
             "clusters": {
-                ("noise" if int(lbl) == -1 else f"cluster {int(lbl)}"): int(cnt)
-                for lbl, cnt in zip(unique, counts)
+                ("noise" if int(lbl) == -1 else f"cluster {int(lbl)}"): int(cnt) for lbl, cnt in zip(unique, counts)
             },
         }
         summary_path = d / "cluster_summary.json"
@@ -260,7 +263,13 @@ def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):
 
     run_cmd(["uv", "run", "python", "scripts/plot_umap.py", str(npz), str(d / "umap.png")])
 
-    run_cmd(["uv", "run", "python", "scripts/plot_timeline.py", str(npz), str(d / "timeline.png")])
+    timeline_dir = d / "timeline"
+    timeline_dir.mkdir(exist_ok=True)
+    timeline_cmd = ["uv", "run", "python", "scripts/plot_timeline.py", str(npz), str(timeline_dir / "timeline.png")]
+    seg_minutes = params.get("timeline_segment_minutes", 0)
+    if seg_minutes:
+        timeline_cmd += ["--segment-minutes", str(seg_minutes)]
+    run_cmd(timeline_cmd)
 
     run_cmd(["uv", "run", "python", "scripts/export_raven_table.py", str(npz), window_sec, str(d / "raven.txt")])
 
