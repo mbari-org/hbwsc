@@ -3,11 +3,12 @@
 
 # Audio input — one or more WAV files
 audio_files:
-  - /path/to/recording.wav
+  - ../../MARS_20161221_000046_SongSession_10kHz_HPF5Hz.wav
 
 # Score-guided windowing — choose one or neither
 # score_file: /path/to/scores.npy       # explicit score file (single WAV only)
 # score_dir:  /path/to/scores/base/dir  # auto-locate by date from WAV filename
+score_file: ../../MARS_20161221_000046_SongSession_10kHz_HPF5Hz_scores.npy
 
 score_threshold: 0.7
 

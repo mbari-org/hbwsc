@@ -91,7 +91,14 @@ def load_params(session_dir: Path) -> dict:
         print(f"ERROR: {yml} not found. Run 'init' first.")
         sys.exit(1)
     with open(yml) as f:
-        return yaml.safe_load(f)
+        params = yaml.safe_load(f)
+    # Resolve relative paths against the session directory so that parameters.yml
+    # is self-contained regardless of the working directory when just is invoked.
+    for key in ("score_file", "score_dir"):
+        if key in params:
+            params[key] = str((session_dir / params[key]).resolve())
+    params["audio_files"] = [str((session_dir / p).resolve()) for p in params["audio_files"]]
+    return params
 
 
 def mcs_dir(session_dir: Path, params: dict, mcs_arg: str) -> Path:
@@ -113,13 +120,15 @@ def run_cmd(cmd: list, **kwargs):
 # ---------------------------------------------------------------------------
 
 
-def cmd_init(session_dir: Path):
+def cmd_init(session_dir: Path, window_sec: str, hop_sec: str):
     session_dir.mkdir(parents=True, exist_ok=True)
     yml = session_dir / "parameters.yml"
     if yml.exists():
         print(f"Already exists: {yml}")
     else:
-        yml.write_text(TEMPLATE)
+        content = TEMPLATE.replace("window_sec: 0.5", f"window_sec: {window_sec}")
+        content = content.replace("hop_sec: 0.25", f"hop_sec: {hop_sec}")
+        yml.write_text(content)
         print(f"Created: {yml}")
         print("Edit parameters.yml before running other commands.")
 
@@ -132,17 +141,29 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
     audio_files = [str(p) for p in params["audio_files"]]
 
     cmd = [
-        "uv", "run", "hbws-cluster",
-        "--score-threshold", str(params.get("score_threshold", 0.7)),
-        "--window-sec", str(params["window_sec"]),
-        "--hop-sec", str(params["hop_sec"]),
-        "--sample-rate", str(params.get("sample_rate", 16000)),
-        "--umap-components", str(params.get("umap_components", 2)),
-        "--umap-cluster-components", str(params.get("umap_cluster_components", 10)),
-        "--umap-neighbors", str(params.get("umap_neighbors", 15)),
-        "--min-cluster-size", str(mcs),
-        "--embeddings-cache", str(embeddings_cache),
-        "--output", str(npz),
+        "uv",
+        "run",
+        "hbws-cluster",
+        "--score-threshold",
+        str(params.get("score_threshold", 0.7)),
+        "--window-sec",
+        str(params["window_sec"]),
+        "--hop-sec",
+        str(params["hop_sec"]),
+        "--sample-rate",
+        str(params.get("sample_rate", 16000)),
+        "--umap-components",
+        str(params.get("umap_components", 2)),
+        "--umap-cluster-components",
+        str(params.get("umap_cluster_components", 10)),
+        "--umap-neighbors",
+        str(params.get("umap_neighbors", 15)),
+        "--min-cluster-size",
+        str(mcs),
+        "--embeddings-cache",
+        str(embeddings_cache),
+        "--output",
+        str(npz),
     ]
 
     if "score_file" in params:
@@ -163,14 +184,23 @@ def cmd_sweep(session_dir: Path, params: dict):
     sweep_out = session_dir / "sweep"
     sweep_out.mkdir(exist_ok=True)
 
-    run_cmd([
-        "uv", "run", "python", "scripts/sweep.py",
-        str(embeddings_cache),
-        "--dims", str(params.get("sweep_dims", "2,5,10,15,20,30")),
-        "--mcs", str(params.get("sweep_mcs", "50,100,200")),
-        "--neighbors", str(params.get("umap_neighbors", 15)),
-        "--out", str(sweep_out / "results.csv"),
-    ])
+    run_cmd(
+        [
+            "uv",
+            "run",
+            "python",
+            "scripts/sweep.py",
+            str(embeddings_cache),
+            "--dims",
+            str(params.get("sweep_dims", "2,5,10,15,20,30")),
+            "--mcs",
+            str(params.get("sweep_mcs", "50,100,200")),
+            "--neighbors",
+            str(params.get("umap_neighbors", 15)),
+            "--out",
+            str(sweep_out / "results.csv"),
+        ]
+    )
 
 
 def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):
@@ -183,20 +213,17 @@ def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):
     window_sec = str(params["window_sec"])
     n_samples = str(params.get("n_cluster_samples", 10))
 
-    run_cmd(["uv", "run", "python", "scripts/plot_umap.py",
-             str(npz), str(d / "umap.png")])
+    run_cmd(["uv", "run", "python", "scripts/plot_umap.py", str(npz), str(d / "umap.png")])
 
-    run_cmd(["uv", "run", "python", "scripts/plot_timeline.py",
-             str(npz), str(d / "timeline.png")])
+    run_cmd(["uv", "run", "python", "scripts/plot_timeline.py", str(npz), str(d / "timeline.png")])
 
-    run_cmd(["uv", "run", "python", "scripts/export_raven_table.py",
-             str(npz), window_sec, str(d / "raven.txt")])
+    run_cmd(["uv", "run", "python", "scripts/export_raven_table.py", str(npz), window_sec, str(d / "raven.txt")])
 
-    run_cmd(["uv", "run", "python", "scripts/aggregate_raven.py",
-             str(d / "raven.txt")])
+    run_cmd(["uv", "run", "python", "scripts/aggregate_raven.py", str(d / "raven.txt")])
 
-    run_cmd(["uv", "run", "python", "scripts/export_all_clusters.py",
-             str(npz), window_sec, n_samples, str(d / "clusters")])
+    run_cmd(
+        ["uv", "run", "python", "scripts/export_all_clusters.py", str(npz), window_sec, n_samples, str(d / "clusters")]
+    )
 
 
 def cmd_inspect(session_dir: Path, params: dict, mcs_arg: str):
@@ -224,7 +251,9 @@ command = sys.argv[2]
 extra = sys.argv[3] if len(sys.argv) > 3 else ""
 
 if command == "init":
-    cmd_init(session_dir)
+    window_sec = sys.argv[3] if len(sys.argv) > 3 else "0.5"
+    hop_sec = sys.argv[4] if len(sys.argv) > 4 else "0.25"
+    cmd_init(session_dir, window_sec, hop_sec)
 else:
     params = load_params(session_dir)
     if command == "run":

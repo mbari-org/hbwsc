@@ -66,9 +66,9 @@ plot-umap npz="output/results.npz" out="output/results.png":
 
 # Session-based workflow (reads parameters.yml from the session directory)
 
-# Create a new session directory with a template parameters.yml
-new-session dir:
-    uv run python scripts/session.py {{ dir }} init
+# Create a new session directory named <base>_w<window>_h<hop>/ with a template parameters.yml
+new-session base window_sec hop_sec:
+    uv run python scripts/session.py {{ base }}_w{{ window_sec }}_h{{ hop_sec }} init {{ window_sec }} {{ hop_sec }}
 
 # Run the clustering pipeline for a session; mcs overrides parameters.yml
 run-session dir mcs="":
