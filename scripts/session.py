@@ -110,9 +110,10 @@ def load_params(session_dir: Path) -> dict:
     return params
 
 
-def mcs_dir(session_dir: Path, params: dict, mcs_arg: str) -> Path:
+def mcs_dir(session_dir: Path, params: dict, mcs_arg: str) -> tuple[Path, int]:
     mcs = int(mcs_arg) if mcs_arg else int(params.get("min_cluster_size", 100))
-    d = session_dir / f"mcs{mcs}"
+    umap_dims = int(params.get("umap_cluster_components", 10))
+    d = session_dir / f"umap{umap_dims}_mcs{mcs}"
     d.mkdir(parents=True, exist_ok=True)
     return d, mcs
 
