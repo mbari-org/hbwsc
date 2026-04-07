@@ -86,6 +86,9 @@ sweep_workers: 2
 
 # Audio export (samples per cluster)
 n_cluster_samples: 10
+
+# Manual labels for comparison (Raven format; optional)
+# manual_labels: /path/to/labels.txt
 """
 
 # ---------------------------------------------------------------------------
@@ -278,6 +281,19 @@ def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):
     run_cmd(
         ["uv", "run", "python", "scripts/export_all_clusters.py", str(npz), window_sec, n_samples, str(d / "clusters")]
     )
+
+    if "manual_labels" in params:
+        manual_labels = Path(params["manual_labels"])
+        if not manual_labels.is_absolute():
+            manual_labels = session_dir / manual_labels
+        if manual_labels.exists():
+            run_cmd([
+                "uv", "run", "python", "scripts/compare_labels.py",
+                str(npz), str(manual_labels),
+                "--out", str(d / "label_comparison.txt"),
+            ])
+        else:
+            print(f"WARNING: manual_labels not found: {manual_labels}")
 
 
 def cmd_inspect(session_dir: Path, params: dict, mcs_arg: str):

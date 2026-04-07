@@ -35,3 +35,6 @@ timeline_segment_minutes: 5
 
 # Audio export (samples per cluster)
 n_cluster_samples: 10
+
+# Manual labels for comparison (Raven format; path relative to session dir)
+manual_labels: ../../ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt
