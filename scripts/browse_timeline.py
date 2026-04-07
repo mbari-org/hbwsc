@@ -116,6 +116,27 @@ n_segments = int(np.ceil(total_minutes / seg_minutes))
 seg_idx = [0]
 playing = [False]
 
+# Precompute per-segment local Jaccard for "best alignment" button
+is_clustered = labels >= 0
+is_labelled = np.zeros(len(labels), dtype=bool)
+if manual_labels:
+    end_secs = r["start_secs"] + 0.5  # window_sec
+    for begin_min, end_min, _ in manual_labels:
+        b, e = begin_min * 60, end_min * 60
+        is_labelled |= (end_secs > b) & (r["start_secs"] < e)
+
+seg_jaccard = []
+for i in range(n_segments):
+    t_min = i * seg_minutes
+    t_max = min(t_min + seg_minutes, total_minutes)
+    mask = (x_minutes >= t_min) & (x_minutes < t_max)
+    c = is_clustered[mask]
+    m = is_labelled[mask]
+    inter = (c & m).sum()
+    union = (c | m).sum()
+    seg_jaccard.append(inter / union if union > 0 else 0.0)
+best_seg = int(np.argmax(seg_jaccard))
+
 # ---------------------------------------------------------------------------
 # Figure layout  (add manual strip if labels provided)
 # ---------------------------------------------------------------------------
@@ -131,14 +152,21 @@ else:
     ax_time = fig.add_axes([0.05, 0.20, 0.93, 0.10])
     ax_manu = None
 
-ax_prev = fig.add_axes([0.33, 0.02, 0.10, 0.07])
-ax_info = fig.add_axes([0.43, 0.02, 0.10, 0.07])
-ax_next = fig.add_axes([0.53, 0.02, 0.10, 0.07])
-ax_play = fig.add_axes([0.64, 0.02, 0.10, 0.07])
+bw = 0.08  # button width
+ax_first = fig.add_axes([0.14, 0.02, bw, 0.07])
+ax_prev  = fig.add_axes([0.23, 0.02, bw, 0.07])
+ax_info  = fig.add_axes([0.32, 0.02, bw, 0.07])
+ax_next  = fig.add_axes([0.41, 0.02, bw, 0.07])
+ax_last  = fig.add_axes([0.50, 0.02, bw, 0.07])
+ax_play  = fig.add_axes([0.61, 0.02, bw, 0.07])
+ax_best  = fig.add_axes([0.71, 0.02, bw, 0.07])
 
-btn_prev = mwidgets.Button(ax_prev, "◀  Prev")
-btn_next = mwidgets.Button(ax_next, "Next  ▶")
-btn_play = mwidgets.Button(ax_play, "▶  Play")
+btn_first = mwidgets.Button(ax_first, "|◀ First")
+btn_prev  = mwidgets.Button(ax_prev,  "◀  Prev")
+btn_next  = mwidgets.Button(ax_next,  "Next  ▶")
+btn_last  = mwidgets.Button(ax_last,  "Last ▶|")
+btn_play  = mwidgets.Button(ax_play,  "▶  Play")
+btn_best  = mwidgets.Button(ax_best,  "★ Best")
 ax_info.axis("off")
 info_text = ax_info.text(0.5, 0.5, "", ha="center", va="center", fontsize=9, transform=ax_info.transAxes)
 
@@ -243,11 +271,10 @@ def stop_playback():
     btn_play.label.set_text("▶  Play")
 
 
-def on_next(_event):
-    if seg_idx[0] < n_segments - 1:
-        stop_playback()
-        seg_idx[0] += 1
-        draw(seg_idx[0])
+def on_first(_event):
+    stop_playback()
+    seg_idx[0] = 0
+    draw(seg_idx[0])
 
 
 def on_prev(_event):
@@ -255,6 +282,25 @@ def on_prev(_event):
         stop_playback()
         seg_idx[0] -= 1
         draw(seg_idx[0])
+
+
+def on_next(_event):
+    if seg_idx[0] < n_segments - 1:
+        stop_playback()
+        seg_idx[0] += 1
+        draw(seg_idx[0])
+
+
+def on_last(_event):
+    stop_playback()
+    seg_idx[0] = n_segments - 1
+    draw(seg_idx[0])
+
+
+def on_best(_event):
+    stop_playback()
+    seg_idx[0] = best_seg
+    draw(seg_idx[0])
 
 
 def on_play(_event):
@@ -281,11 +327,20 @@ def on_key(event):
         on_prev(None)
     elif event.key == " ":
         on_play(None)
+    elif event.key == "home":
+        on_first(None)
+    elif event.key == "end":
+        on_last(None)
+    elif event.key == "b":
+        on_best(None)
 
 
-btn_next.on_clicked(on_next)
+btn_first.on_clicked(on_first)
 btn_prev.on_clicked(on_prev)
+btn_next.on_clicked(on_next)
+btn_last.on_clicked(on_last)
 btn_play.on_clicked(on_play)
+btn_best.on_clicked(on_best)
 fig.canvas.mpl_connect("key_press_event", on_key)
 
 draw(0)
