@@ -1,21 +1,25 @@
 """Interactive timeline browser: spectrogram + cluster color strip.
 
-Displays a figure with two panels for the current time segment:
+Displays a figure with panels for the current time segment:
   - Top:    spectrogram of the audio
-  - Bottom: cluster color strip (same style as plot_timeline.py)
+  - Middle: cluster colour strip (HDBSCAN output)
+  - Bottom: manual label strip (optional, Raven format)
 
 Use the Prev / Next buttons (or left/right arrow keys) to navigate segments.
+Spacebar or the Play button toggles play/pause.
 
 Usage:
-    uv run python scripts/browse_timeline.py <npz> [--segment-minutes N] [--audio FILE]
+    uv run python scripts/browse_timeline.py <npz> [options]
 
 Arguments:
     npz                Path to results .npz produced by hbws-cluster.
     --segment-minutes  Segment duration in minutes (default: 2).
-    --audio            WAV file to use (default: first file in npz source_files).
+    --audio            WAV file (default: first file in npz source_files).
+    --manual-labels    Raven selection table with manual labels (optional).
 """
 
 import argparse
+import csv
 import sys
 from pathlib import Path
 
@@ -35,6 +39,7 @@ parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.R
 parser.add_argument("npz", type=Path)
 parser.add_argument("--segment-minutes", type=float, default=2.0)
 parser.add_argument("--audio", type=Path, default=None)
+parser.add_argument("--manual-labels", type=Path, default=None)
 args = parser.parse_args()
 
 # ---------------------------------------------------------------------------
@@ -57,6 +62,29 @@ hop_minutes = float(np.median(np.diff(start_secs))) / 60.0
 x_minutes = start_secs / 60.0
 
 # ---------------------------------------------------------------------------
+# Load manual labels (Raven format)
+# ---------------------------------------------------------------------------
+
+manual_labels = None  # list of (begin_min, end_min, type_str)
+manual_colours = {}
+
+if args.manual_labels:
+    manual_labels = []
+    with open(args.manual_labels) as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        for row in reader:
+            begin_min = float(row["Begin Time (s)"]) / 60.0
+            end_min = float(row["End Time (s)"]) / 60.0
+            label_type = row["Type"].strip()
+            manual_labels.append((begin_min, end_min, label_type))
+
+    unique_types = sorted(set(t for _, _, t in manual_labels))
+    n_types = len(unique_types)
+    mcmap = plt.get_cmap("tab10" if n_types <= 10 else "tab20")
+    manual_colours = {t: mcmap(i / max(n_types - 1, 1)) for i, t in enumerate(unique_types)}
+    print(f"Manual labels: {len(manual_labels)} selections, {n_types} types: {unique_types}")
+
+# ---------------------------------------------------------------------------
 # Load audio
 # ---------------------------------------------------------------------------
 
@@ -66,7 +94,6 @@ else:
     source_files = r["source_files"].astype(str).tolist()
     audio_path = Path(source_files[0])
     if not audio_path.exists():
-        # try relative to npz location
         audio_path = args.npz.parent.parent.parent / audio_path.name
     if not audio_path.exists():
         print(f"ERROR: audio file not found: {source_files[0]}")
@@ -76,7 +103,7 @@ else:
 print(f"Loading audio: {audio_path} ...")
 audio, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=False)
 if audio.ndim > 1:
-    audio = audio.mean(axis=1)  # mix to mono
+    audio = audio.mean(axis=1)
 print(f"Audio: {len(audio) / sample_rate:.1f}s  @{sample_rate}Hz")
 
 # ---------------------------------------------------------------------------
@@ -86,22 +113,28 @@ print(f"Audio: {len(audio) / sample_rate:.1f}s  @{sample_rate}Hz")
 seg_minutes = args.segment_minutes
 total_minutes = x_minutes.max()
 n_segments = int(np.ceil(total_minutes / seg_minutes))
-seg_idx = [0]  # mutable for closure
+seg_idx = [0]
 playing = [False]
 
 # ---------------------------------------------------------------------------
-# Figure layout
+# Figure layout  (add manual strip if labels provided)
 # ---------------------------------------------------------------------------
 
-fig = plt.figure(figsize=(20, 5))
-fig.subplots_adjust(left=0.05, right=0.98, top=0.88, bottom=0.22, hspace=0.08)
+fig = plt.figure(figsize=(20, 6 if manual_labels else 5))
 
-ax_spec = fig.add_axes([0.05, 0.32, 0.93, 0.54])
-ax_time = fig.add_axes([0.05, 0.20, 0.93, 0.10])
-ax_prev = fig.add_axes([0.33, 0.04, 0.10, 0.08])
-ax_info = fig.add_axes([0.43, 0.04, 0.10, 0.08])
-ax_next = fig.add_axes([0.53, 0.04, 0.10, 0.08])
-ax_play = fig.add_axes([0.64, 0.04, 0.10, 0.08])
+if manual_labels:
+    ax_spec = fig.add_axes([0.05, 0.34, 0.93, 0.50])
+    ax_time = fig.add_axes([0.05, 0.24, 0.93, 0.08])
+    ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.08])
+else:
+    ax_spec = fig.add_axes([0.05, 0.32, 0.93, 0.54])
+    ax_time = fig.add_axes([0.05, 0.20, 0.93, 0.10])
+    ax_manu = None
+
+ax_prev = fig.add_axes([0.33, 0.02, 0.10, 0.07])
+ax_info = fig.add_axes([0.43, 0.02, 0.10, 0.07])
+ax_next = fig.add_axes([0.53, 0.02, 0.10, 0.07])
+ax_play = fig.add_axes([0.64, 0.02, 0.10, 0.07])
 
 btn_prev = mwidgets.Button(ax_prev, "◀  Prev")
 btn_next = mwidgets.Button(ax_next, "Next  ▶")
@@ -112,7 +145,6 @@ info_text = ax_info.text(0.5, 0.5, "", ha="center", va="center", fontsize=9, tra
 # ---------------------------------------------------------------------------
 # Draw helpers
 # ---------------------------------------------------------------------------
-
 
 def fmt_hm(minutes):
     h, m = divmod(int(minutes), 60)
@@ -141,7 +173,7 @@ def draw(idx):
     ax_spec.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
     ax_spec.tick_params(labelbottom=False)
 
-    # --- timeline strip -------------------------------------------------------
+    # --- cluster strip --------------------------------------------------------
     ax_time.cla()
     mask_seg = (x_minutes >= t_min) & (x_minutes < t_max)
     for lbl in unique_labels:
@@ -150,33 +182,55 @@ def draw(idx):
             continue
         tag = "noise" if lbl == -1 else f"cluster {lbl}"
         ax_time.bar(
-            x_minutes[mask],
-            height=1.0,
-            width=hop_minutes,
-            bottom=-0.5,
-            color=colours[lbl],
-            linewidth=0,
-            label=tag,
-            align="edge",
+            x_minutes[mask], height=1.0, width=hop_minutes, bottom=-0.5,
+            color=colours[lbl], linewidth=0, label=tag, align="edge",
         )
     ax_time.set_xlim(t_min, t_max)
     ax_time.set_ylim(-0.5, 0.5)
     ax_time.set_yticks([])
-    ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-    ax_time.set_xlabel("Time (h:mm:ss)")
+    ax_time.set_ylabel("clusters", fontsize=7)
+    ax_time.tick_params(labelbottom=False)
 
-    # legend above spectrogram
     handles, lbls = ax_time.get_legend_handles_labels()
-    ax_spec.legend(
-        handles,
-        lbls,
-        loc="lower left",
-        bbox_to_anchor=(0, 1.01),
-        ncol=min(n_clusters + 1, 12),
-        fontsize=7,
-        framealpha=0.8,
-        borderaxespad=0,
-    )
+    ax_spec.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
+                   ncol=min(n_clusters + 1, 12), fontsize=7, framealpha=0.8, borderaxespad=0)
+
+    # --- manual labels strip --------------------------------------------------
+    if ax_manu is not None:
+        ax_manu.cla()
+        seen = set()
+        for begin_min, end_min, ltype in manual_labels:
+            if end_min < t_min or begin_min > t_max:
+                continue
+            lbl_kw = dict(label=ltype) if ltype not in seen else {}
+            seen.add(ltype)
+            ax_manu.barh(
+                0,
+                width=end_min - begin_min,
+                left=begin_min,
+                height=1.0,
+                color=manual_colours[ltype],
+                linewidth=0,
+                **lbl_kw,
+            )
+            # label text inside bar if wide enough
+            mid = (begin_min + end_min) / 2
+            if t_min <= mid <= t_max:
+                ax_manu.text(mid, 0, ltype, ha="center", va="center", fontsize=6, clip_on=True)
+        ax_manu.set_xlim(t_min, t_max)
+        ax_manu.set_ylim(-0.5, 0.5)
+        ax_manu.set_yticks([])
+        ax_manu.set_ylabel("manual", fontsize=7)
+        ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
+        ax_manu.set_xlabel("Time (h:mm:ss)")
+
+        mhandles, mlbls = ax_manu.get_legend_handles_labels()
+        if mhandles:
+            ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
+                           ncol=min(len(manual_colours), 15), fontsize=7, framealpha=0.8, borderaxespad=0)
+    else:
+        ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
+        ax_time.set_xlabel("Time (h:mm:ss)")
 
     info_text.set_text(f"{idx + 1} / {n_segments}")
     fig.canvas.draw_idle()
