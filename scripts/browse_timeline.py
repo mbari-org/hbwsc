@@ -166,7 +166,8 @@ def draw(idx):
     Sxx_db = 10 * np.log10(Sxx + 1e-10)
 
     ax_spec.cla()
-    ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto", cmap="magma", rasterized=True)
+    ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto",
+                       cmap="Blues_r", rasterized=True)
     ax_spec.set_xlim(t_min, t_max)
     ax_spec.set_ylabel("Freq (Hz)")
     ax_spec.set_title(f"{args.npz.parent.name}  [{fmt_hm(t_min)} – {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})")

@@ -1,0 +1,61 @@
+Comparison across all sessions so far:
+
+┌──────────┬───────────────┬─────────┬───────┬─────────────┬──────────────┐
+│ Session  │    Config     │ Jaccard │  NMI  │ Homogeneity │ Completeness │
+├──────────┼───────────────┼─────────┼───────┼─────────────┼──────────────┤
+│ score0.7 │ umap10_mcs100 │ 0.510   │ 0.430 │ 0.373       │ 0.509        │
+├──────────┼───────────────┼─────────┼───────┼─────────────┼──────────────┤
+│ score0.5 │ umap5_mcs50   │ 0.510   │ 0.360 │ 0.314       │ 0.421        │
+├──────────┼───────────────┼─────────┼───────┼─────────────┼──────────────┤
+│ score0.5 │ umap15_mcs50  │ 0.528   │ 0.426 │ 0.389       │ 0.472        │ (*)
+├──────────┼───────────────┼─────────┼───────┼─────────────┼──────────────┤
+│ full     │ umap20_mcs200 │ 0.456   │ 0.353 │ 0.310       │ 0.409        │
+└──────────┴───────────────┴─────────┴───────┴─────────────┴──────────────┘
+
+umap15_mcs50 is the best overall:
+   highest Jaccard (0.528)
+   and NMI (0.426), comparable to the score0.7 session but with more windows included.
+
+Key observations:
+
+- Cluster 0 (5066 windows) and cluster 5 (5097 windows) are the two catch-alls again, but smaller relative share than before
+- Strong alignments:
+    cluster 1->H (98%), cluster 2->A (91%), cluster 4->G2 (97%), cluster 6/7->P (99%),
+    cluster 8->G (88%), cluster 14->D (96%), cluster 16->D (99%), cluster 18->E (95%)
+- C is well captured: C->cluster 5 with 84% recall — much better than before
+- D is now well separated: clusters 14 and 16 both highly pure for D
+
+(*) The score0.5 + 15-D + mcs=50 combination is the best result so far.
+
+----
+
+Regarding, 2-D UMAP plots, which I doubt can have real utility in general, pointing Claude to Fig. 3 of
+the TweetyBERT paper, it said:
+
+    This is actually a much more legitimate use of 2-D UMAP than typical — a few key differences from your situation:
+
+      1. Birdsong syllables are much more stereotyped than humpback calls. Canary syllables repeat thousands of times
+         with very little variation, so the embedding manifold is genuinely low-dimensional (ring/loop shapes in panel B).
+         The 2-D projection preserves real structure because the intrinsic dimensionality is already low.
+      2. The coloring is the point — they're not using the 2-D plot to discover clusters, they're using it to
+         validate that ground-truth syllable labels (colors) align with embedding geometry. That's a legitimate qualitative check.
+      3. Panel C is the honest comparison — showing that raw spectrogram UMAP (without TweetyBERT) produces blobs with
+         no separable structure, while panel B shows clean rings per syllable type. The contrast makes the point.
+
+      For humpback song the analogy breaks down because:
+      - Call types are far more variable and context-dependent
+      - The intrinsic dimensionality is likely much higher
+      - 1 million time bins of highly stereotyped canary syllables is a very different regime from 40k windows of complex whale song
+
+      So the TweetyBERT authors are using 2-D UMAP appropriately for their domain. It doesn't generalize as a methodology to yours.
+
+----
+
+
+Browsing:
+
+uv run python scripts/browse_timeline.py \                                                                                                                                                                                                                                        (base)
+    experiments/song_20161221_score0.5_w0.5_h0.25/umap15_mcs50/results.npz \
+    --audio MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav \
+    --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
+    --segment-minutes 2
