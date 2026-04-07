@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-04-07T02:49:53.135262+00:00",
+  "min_cluster_size": 100,
+  "n_clusters": 15,
+  "n_noise": 6823,
+  "clusters": {
+    "noise": 6823,
+    "cluster 0": 1249,
+    "cluster 1": 749,
+    "cluster 2": 224,
+    "cluster 3": 172,
+    "cluster 4": 118,
+    "cluster 5": 110,
+    "cluster 6": 4553,
+    "cluster 7": 208,
+    "cluster 8": 2460,
+    "cluster 9": 16160,
+    "cluster 10": 779,
+    "cluster 11": 137,
+    "cluster 12": 108,
+    "cluster 13": 1555,
+    "cluster 14": 722
+  }
+}

@@ -1,4 +1,7 @@
 output/
+*.npz
+*.wav
+*.npy
 
 # Python-generated files
 __pycache__/

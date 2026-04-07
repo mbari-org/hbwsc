@@ -35,8 +35,10 @@ Usage
     uv run python scripts/session.py <session_dir> inspect [mcs]
 """
 
+import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -77,6 +79,7 @@ min_cluster_size: 100        # default; can be overridden on 'run' command line
 # Hyperparameter sweep
 sweep_dims: "2,5,10,15,20,30"
 sweep_mcs: "50,100,200"
+sweep_workers: 2
 
 # Audio export (samples per cluster)
 n_cluster_samples: 10
@@ -174,6 +177,45 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
     cmd += audio_files
     run_cmd(cmd)
 
+    if embeddings_cache.exists() and npz.exists():
+        import numpy as np
+        r = np.load(npz, allow_pickle=False)
+
+        # Embeddings sidecar (session root, shared across runs)
+        meta = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "n_windows": int(r["embeddings"].shape[0]),
+            "embedding_dim": int(r["embeddings"].shape[1]),
+            "source_files": sorted(set(r["source_files"].astype(str).tolist())),
+            "window_sec": params["window_sec"],
+            "hop_sec": params["hop_sec"],
+            "score_threshold": params.get("score_threshold"),
+            "score_file": params.get("score_file"),
+            "score_dir": params.get("score_dir"),
+        }
+        meta_path = session_dir / "embeddings_meta.json"
+        with open(meta_path, "w") as f:
+            json.dump(meta, f, indent=2)
+        print(f"\nEmbedding summary saved to {meta_path}")
+
+        # Cluster summary (mcs subdir)
+        labels = r["labels"]
+        unique, counts = np.unique(labels, return_counts=True)
+        summary = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "min_cluster_size": mcs,
+            "n_clusters": int((unique >= 0).sum()),
+            "n_noise": int(counts[unique == -1][0]) if -1 in unique else 0,
+            "clusters": {
+                ("noise" if int(lbl) == -1 else f"cluster {int(lbl)}"): int(cnt)
+                for lbl, cnt in zip(unique, counts)
+            },
+        }
+        summary_path = d / "cluster_summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2)
+        print(f"Cluster summary saved to {summary_path}")
+
 
 def cmd_sweep(session_dir: Path, params: dict):
     embeddings_cache = session_dir / "embeddings.npy"
@@ -183,6 +225,7 @@ def cmd_sweep(session_dir: Path, params: dict):
 
     sweep_out = session_dir / "sweep"
     sweep_out.mkdir(exist_ok=True)
+    n_workers = params.get("sweep_workers", 2)
 
     run_cmd(
         [
@@ -197,8 +240,10 @@ def cmd_sweep(session_dir: Path, params: dict):
             str(params.get("sweep_mcs", "50,100,200")),
             "--neighbors",
             str(params.get("umap_neighbors", 15)),
+            "--workers",
+            str(n_workers),
             "--out",
-            str(sweep_out / "results.csv"),
+            str(sweep_out / f"results_workers{n_workers}.csv"),
         ]
     )
 

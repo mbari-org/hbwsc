@@ -11,6 +11,7 @@ Options:
     --mcs      Comma-separated min_cluster_size values to try  (default: 50,100,200)
     --neighbors  UMAP n_neighbors                              (default: 15)
     --out      Path to save results table as CSV               (optional)
+    --workers  Number of parallel workers                      (default: 2; UMAP is memory-heavy)
 
 Metrics reported per configuration:
     n_clusters   Number of clusters found (excluding noise label -1)
@@ -56,16 +57,33 @@ Results from that run:
 
 import argparse
 import csv
+import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 
 import hdbscan
-import hdbscan.validity
 import numpy as np
 import umap as umap_lib
 
+# Worker receives shared-memory metadata instead of the array itself.
+_shm_name: str | None = None
+_shm_shape: tuple | None = None
+_shm_dtype: np.dtype | None = None
 
-def run_one(embeddings: np.ndarray, umap_dims: int, mcs: int, n_neighbors: int) -> dict:
+
+def _init_worker(shm_name: str, shape: tuple, dtype_str: str) -> None:
+    """Attach to shared memory once per worker process (no copy)."""
+    global _shm_name, _shm_shape, _shm_dtype
+    _shm_name = shm_name
+    _shm_shape = shape
+    _shm_dtype = np.dtype(dtype_str)
+
+
+def run_one(umap_dims: int, mcs: int, n_neighbors: int) -> dict:
+    shm = SharedMemory(name=_shm_name)
+    embeddings = np.ndarray(_shm_shape, dtype=_shm_dtype, buffer=shm.buf)
     t0 = time.perf_counter()
 
     reducer = umap_lib.UMAP(
@@ -82,6 +100,7 @@ def run_one(embeddings: np.ndarray, umap_dims: int, mcs: int, n_neighbors: int) 
         min_samples=mcs,
         metric="euclidean",
         cluster_selection_method="eom",
+        gen_min_span_tree=True,
     )
     clusterer.fit(reduced)
     t_hdbscan = time.perf_counter() - t0 - t_umap
@@ -97,11 +116,12 @@ def run_one(embeddings: np.ndarray, umap_dims: int, mcs: int, n_neighbors: int) 
         median_sz = int(np.median(sizes))
         min_sz = min(sizes)
         max_sz = max(sizes)
-        dbcv = float(hdbscan.validity.validity_index(reduced.astype(np.float64), labels))
+        dbcv = float(clusterer.relative_validity_)
     else:
         median_sz = min_sz = max_sz = 0
         dbcv = float("nan")
 
+    shm.close()
     return {
         "umap_dims": umap_dims,
         "mcs": mcs,
@@ -123,6 +143,7 @@ def main() -> None:
     parser.add_argument("--mcs", default="50,100,200", help="Comma-separated min_cluster_size values")
     parser.add_argument("--neighbors", type=int, default=15, help="UMAP n_neighbors")
     parser.add_argument("--out", type=Path, default=None, help="Save results as CSV")
+    parser.add_argument("--workers", type=int, default=2, help="Parallel workers (default: 2; UMAP uses significant memory per worker)")
     args = parser.parse_args()
 
     embeddings = np.load(args.embeddings)
@@ -131,11 +152,14 @@ def main() -> None:
     dims_list = [int(x) for x in args.dims.split(",")]
     mcs_list = [int(x) for x in args.mcs.split(",")]
     n_neighbors = args.neighbors
+    n_configs = len(dims_list) * len(mcs_list)
+    n_workers = min(args.workers, n_configs)
 
     print(f"UMAP dims:         {dims_list}")
     print(f"min_cluster_size:  {mcs_list}")
     print(f"UMAP n_neighbors:  {n_neighbors}")
-    print(f"Total configs:     {len(dims_list) * len(mcs_list)}\n")
+    print(f"Total configs:     {n_configs}")
+    print(f"Workers:           {n_workers}\n")
 
     header = [
         "umap_dims",
@@ -155,15 +179,34 @@ def main() -> None:
         vals = [str(row[k]) for k in header]
         return "  ".join(v.rjust(w) for v, w in zip(vals, col_w))
 
+    # Put embeddings in shared memory so worker processes read without copying.
+    emb_shape = embeddings.shape
+    emb_dtype = embeddings.dtype
+    embeddings_c = np.ascontiguousarray(embeddings)
+    del embeddings
+    shm = SharedMemory(create=True, size=embeddings_c.nbytes)
+    shm_arr = np.ndarray(emb_shape, dtype=emb_dtype, buffer=shm.buf)
+    shm_arr[:] = embeddings_c
+    del embeddings_c, shm_arr  # only the shm block holds the data now
+
     print("  ".join(h.rjust(w) for h, w in zip(header, col_w)))
     print("  ".join("-" * w for w in col_w))
 
     rows = []
-    for dims in dims_list:
-        for mcs in mcs_list:
-            row = run_one(embeddings, dims, mcs, n_neighbors)
-            rows.append(row)
-            print(fmt_row(row), flush=True)
+    try:
+        initargs = (shm.name, emb_shape, emb_dtype.str)
+        with ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker, initargs=initargs) as executor:
+            futures = {executor.submit(run_one, dims, mcs, n_neighbors): (dims, mcs)
+                       for dims in dims_list for mcs in mcs_list}
+            for f in as_completed(futures):
+                row = f.result()
+                rows.append(row)
+                print(fmt_row(row), flush=True)
+    finally:
+        shm.close()
+        shm.unlink()
+
+    rows.sort(key=lambda r: (r["umap_dims"], r["mcs"]))
 
     if args.out:
         with open(args.out, "w", newline="") as f:
