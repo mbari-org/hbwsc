@@ -20,16 +20,23 @@ Arguments:
 
 import argparse
 import csv
+import platform
+import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.widgets as mwidgets
 import numpy as np
-import sounddevice as sd
 import soundfile as sf
 from scipy.signal import spectrogram as scipy_spectrogram
+
+_IS_MACOS = platform.system() == "Darwin"
+if not _IS_MACOS:
+    import sounddevice as sd
 
 # ---------------------------------------------------------------------------
 # Args
@@ -115,6 +122,13 @@ total_minutes = x_minutes.max()
 n_segments = int(np.ceil(total_minutes / seg_minutes))
 seg_idx = [0]
 playing = [False]
+play_start_wall   = [0.0]   # wall-clock time when playback began (adjusted for pause)
+play_start_min    = [0.0]   # timeline position (minutes) at play start
+pause_offset_sec  = [0.0]   # elapsed seconds at last pause
+vline = [None]              # vertical playhead Line2D on ax_spec (animated)
+_bg   = [None]              # blitting background snapshot
+_audio_proc = [None]        # afplay subprocess (macOS only)
+_tmp_wav    = [None]        # path to current temp WAV (macOS only)
 
 # Precompute per-segment local Jaccard for "best alignment" button
 is_clustered = labels >= 0
@@ -153,20 +167,22 @@ else:
     ax_manu = None
 
 bw = 0.08  # button width
-ax_first = fig.add_axes([0.14, 0.02, bw, 0.07])
-ax_prev  = fig.add_axes([0.23, 0.02, bw, 0.07])
-ax_info  = fig.add_axes([0.32, 0.02, bw, 0.07])
-ax_next  = fig.add_axes([0.41, 0.02, bw, 0.07])
-ax_last  = fig.add_axes([0.50, 0.02, bw, 0.07])
-ax_play  = fig.add_axes([0.61, 0.02, bw, 0.07])
-ax_best  = fig.add_axes([0.71, 0.02, bw, 0.07])
+ax_first  = fig.add_axes([0.14, 0.02, bw, 0.07])
+ax_prev   = fig.add_axes([0.23, 0.02, bw, 0.07])
+ax_info   = fig.add_axes([0.32, 0.02, bw, 0.07])
+ax_next   = fig.add_axes([0.41, 0.02, bw, 0.07])
+ax_last   = fig.add_axes([0.50, 0.02, bw, 0.07])
+ax_play   = fig.add_axes([0.61, 0.02, bw, 0.07])
+ax_rewind = fig.add_axes([0.70, 0.02, bw, 0.07])
+ax_best   = fig.add_axes([0.79, 0.02, bw, 0.07])
 
-btn_first = mwidgets.Button(ax_first, "|◀ First")
-btn_prev  = mwidgets.Button(ax_prev,  "◀  Prev")
-btn_next  = mwidgets.Button(ax_next,  "Next  ▶")
-btn_last  = mwidgets.Button(ax_last,  "Last ▶|")
-btn_play  = mwidgets.Button(ax_play,  "▶  Play")
-btn_best  = mwidgets.Button(ax_best,  "★ Best")
+btn_first  = mwidgets.Button(ax_first,  "|◀ First")
+btn_prev   = mwidgets.Button(ax_prev,   "◀  Prev")
+btn_next   = mwidgets.Button(ax_next,   "Next  ▶")
+btn_last   = mwidgets.Button(ax_last,   "Last ▶|")
+btn_play   = mwidgets.Button(ax_play,   "▶  Play")
+btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
+btn_best   = mwidgets.Button(ax_best,   "★ Best")
 ax_info.axis("off")
 info_text = ax_info.text(0.5, 0.5, "", ha="center", va="center", fontsize=9, transform=ax_info.transAxes)
 
@@ -262,13 +278,55 @@ def draw(idx):
         ax_time.set_xlabel("Time (h:mm:ss)")
 
     info_text.set_text(f"{idx + 1} / {n_segments}")
-    fig.canvas.draw_idle()
+
+    # Full synchronous draw, then snapshot background (vline excluded via animated=True)
+    fig.canvas.draw()
+    _bg[0] = fig.canvas.copy_from_bbox(fig.bbox)
+
+    # Recreate animated playhead (not drawn during normal renders)
+    vline[0] = ax_spec.axvline(x=t_min, color="white", linewidth=1.2,
+                                alpha=0.85, animated=True, zorder=10)
+
+
+def _kill_afplay():
+    if _audio_proc[0] is not None:
+        _audio_proc[0].terminate()
+        _audio_proc[0] = None
+    if _tmp_wav[0] is not None:
+        try:
+            Path(_tmp_wav[0]).unlink()
+        except OSError:
+            pass
+        _tmp_wav[0] = None
+
+
+def _play_audio(chunk):
+    if _IS_MACOS:
+        _kill_afplay()
+        tf = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        sf.write(tf.name, chunk, sample_rate)
+        tf.close()
+        _tmp_wav[0] = tf.name
+        _audio_proc[0] = subprocess.Popen(["afplay", tf.name])
+    else:
+        sd.play(chunk, samplerate=sample_rate)
+
+
+def _stop_audio():
+    if _IS_MACOS:
+        _kill_afplay()
+    else:
+        sd.stop()
 
 
 def stop_playback():
-    sd.stop()
+    _stop_audio()
     playing[0] = False
+    pause_offset_sec[0] = 0.0
     btn_play.label.set_text("▶  Play")
+    if _bg[0] is not None:
+        fig.canvas.restore_region(_bg[0])
+        fig.canvas.blit(fig.bbox)
 
 
 def on_first(_event):
@@ -303,21 +361,52 @@ def on_best(_event):
     draw(seg_idx[0])
 
 
+def on_rewind(_event):
+    """Stop playback and reset position to the beginning of the current segment."""
+    was_playing = playing[0]
+    _stop_audio()
+    playing[0] = False
+    pause_offset_sec[0] = 0.0
+    btn_play.label.set_text("▶  Play")
+    if vline[0] is not None:
+        t_min = seg_idx[0] * seg_minutes
+        vline[0].set_xdata([t_min, t_min])
+    fig.canvas.draw()
+    _bg[0] = fig.canvas.copy_from_bbox(fig.bbox)
+    if vline[0] is not None:
+        ax_spec.draw_artist(vline[0])
+        fig.canvas.blit(fig.bbox)
+
+
 def on_play(_event):
     if playing[0]:
-        sd.stop()
+        # Pause: record how far we got and pin vline to that position
+        pause_offset_sec[0] = time.time() - play_start_wall[0]
+        _stop_audio()
         playing[0] = False
         btn_play.label.set_text("▶  Play")
+        if vline[0] is not None:
+            vline[0].set_xdata([play_start_min[0] + pause_offset_sec[0] / 60.0] * 2)
     else:
         idx = seg_idx[0]
         t_min = idx * seg_minutes
         t_max = min(t_min + seg_minutes, total_minutes)
         s0 = int(t_min * 60 * sample_rate)
         s1 = int(t_max * 60 * sample_rate)
-        sd.play(audio[s0:s1], samplerate=sample_rate)
+        # Resume from pause offset (0 if starting fresh)
+        offset_samples = int(pause_offset_sec[0] * sample_rate)
+        _play_audio(audio[s0 + offset_samples:s1])
+        play_start_wall[0] = time.time() - pause_offset_sec[0]
+        play_start_min[0] = t_min
         playing[0] = True
         btn_play.label.set_text("⏸  Pause")
-    fig.canvas.draw_idle()
+    # Redraw and refresh background so the timer doesn't restore the old label
+    fig.canvas.draw()
+    _bg[0] = fig.canvas.copy_from_bbox(fig.bbox)
+    # Keep vline visible while paused
+    if not playing[0] and vline[0] is not None:
+        ax_spec.draw_artist(vline[0])
+        fig.canvas.blit(fig.bbox)
 
 
 def on_key(event):
@@ -333,6 +422,8 @@ def on_key(event):
         on_last(None)
     elif event.key == "b":
         on_best(None)
+    elif event.key == "r":
+        on_rewind(None)
 
 
 btn_first.on_clicked(on_first)
@@ -340,8 +431,69 @@ btn_prev.on_clicked(on_prev)
 btn_next.on_clicked(on_next)
 btn_last.on_clicked(on_last)
 btn_play.on_clicked(on_play)
+btn_rewind.on_clicked(on_rewind)
 btn_best.on_clicked(on_best)
 fig.canvas.mpl_connect("key_press_event", on_key)
+
+
+def _tick_playhead(_):
+    """Move the vertical playhead — uses blitting to avoid full redraws."""
+    if not playing[0] or vline[0] is None or _bg[0] is None:
+        return
+    elapsed = time.time() - play_start_wall[0]
+    pos = play_start_min[0] + elapsed / 60.0
+    t_min = seg_idx[0] * seg_minutes
+    t_max = min(t_min + seg_minutes, total_minutes)
+    if pos >= t_max:
+        stop_playback()
+        return
+    fig.canvas.restore_region(_bg[0])
+    vline[0].set_xdata([pos, pos])
+    ax_spec.draw_artist(vline[0])
+    fig.canvas.blit(fig.bbox)
+
+
+_timer = fig.canvas.new_timer(interval=300)
+_timer.add_callback(_tick_playhead, None)
+_timer.start()
+
+
+def on_spectrogram_click(event):
+    """Seek to clicked position in the spectrogram."""
+    if event.inaxes is not ax_spec or event.xdata is None:
+        return
+    t_min = seg_idx[0] * seg_minutes
+    t_max = min(t_min + seg_minutes, total_minutes)
+    clicked_min = max(t_min, min(event.xdata, t_max))
+    new_offset_sec = (clicked_min - t_min) * 60.0
+
+    was_playing = playing[0]
+    if was_playing:
+        _stop_audio()
+        playing[0] = False
+
+    pause_offset_sec[0] = new_offset_sec
+    if vline[0] is not None:
+        vline[0].set_xdata([clicked_min, clicked_min])
+
+    if was_playing:
+        s0 = int(t_min * 60 * sample_rate)
+        s1 = int(t_max * 60 * sample_rate)
+        _play_audio(audio[s0 + int(new_offset_sec * sample_rate):s1])
+        play_start_wall[0] = time.time() - new_offset_sec
+        play_start_min[0] = t_min
+        playing[0] = True
+        btn_play.label.set_text("⏸  Pause")
+
+    fig.canvas.draw()
+    _bg[0] = fig.canvas.copy_from_bbox(fig.bbox)
+    if vline[0] is not None:
+        ax_spec.draw_artist(vline[0])
+        fig.canvas.blit(fig.bbox)
+
+
+fig.canvas.mpl_connect("button_press_event", on_spectrogram_click)
+fig.canvas.mpl_connect("close_event", lambda _: _stop_audio())
 
 draw(0)
 plt.show()
