@@ -141,14 +141,14 @@ best_seg = int(np.argmax(seg_jaccard))
 # Figure layout  (add manual strip if labels provided)
 # ---------------------------------------------------------------------------
 
-fig = plt.figure(figsize=(20, 6 if manual_labels else 5))
+fig = plt.figure(figsize=(20, 9 if manual_labels else 7))
 
 if manual_labels:
-    ax_spec = fig.add_axes([0.05, 0.34, 0.93, 0.50])
+    ax_spec = fig.add_axes([0.05, 0.34, 0.93, 0.55])
     ax_time = fig.add_axes([0.05, 0.24, 0.93, 0.08])
     ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.08])
 else:
-    ax_spec = fig.add_axes([0.05, 0.32, 0.93, 0.54])
+    ax_spec = fig.add_axes([0.05, 0.32, 0.93, 0.60])
     ax_time = fig.add_axes([0.05, 0.20, 0.93, 0.10])
     ax_manu = None
 
@@ -221,7 +221,7 @@ def draw(idx):
     ax_time.tick_params(labelbottom=False)
 
     handles, lbls = ax_time.get_legend_handles_labels()
-    ax_spec.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
+    ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
                    ncol=min(n_clusters + 1, 12), fontsize=7, framealpha=0.8, borderaxespad=0)
 
     # --- manual labels strip --------------------------------------------------
