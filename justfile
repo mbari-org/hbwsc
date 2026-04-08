@@ -86,6 +86,28 @@ analyze-session dir mcs="":
 inspect-session dir mcs="":
     uv run python scripts/session.py {{ dir }} inspect {{ mcs }}
 
+
+###########################
+
+browse_timeline npz segment_minutes='2':
+    uv run python scripts/browse_timeline.py \
+        {{ npz }} \
+        --audio MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav \
+        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
+        --segment-minutes {{ segment_minutes }}
+
+browse_timeline_score0_5 segment_minutes='2':
+    just browse_timeline \
+      experiments/song_20161221_score0.5_w0.5_h0.25/umap15_mcs50/results.npz \
+      {{ segment_minutes }}
+
+browse_timeline_full segment_minutes='2':
+    just browse_timeline \
+      experiments/song_20161221_full_w0.5_h0.25/umap20_mcs200/results.npz \
+      {{ segment_minutes }}
+
+###########################
+
 dev: test format lint
 
 # Run tests
