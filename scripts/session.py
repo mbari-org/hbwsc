@@ -68,13 +68,13 @@ window_sec: 0.5
 hop_sec: 0.25
 sample_rate: 16000
 
+# AVES embedding
+batch_size: 16               # increase on GPU (e.g. 64, 128)
+
 # UMAP
 umap_components: 2           # for visualization (2-D scatter plot)
 umap_cluster_components: 10  # for HDBSCAN clustering
 umap_neighbors: 15
-
-# AVES embedding
-batch_size: 16               # increase on GPU (e.g. 64, 128)
 
 # HDBSCAN
 min_cluster_size: 100        # default; can be overridden on 'run' command line

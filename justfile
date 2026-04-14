@@ -107,6 +107,27 @@ browse_timeline_full segment_minutes='2':
       {{ segment_minutes }}
 
 ###########################
+## GPU
+
+## Ad hoc recipe for some testing on sonus
+gpu_embeddings batch_size:
+  uv run hbws-cluster \
+    --score-threshold 0.5 \
+    --window-sec 0.5 \
+    --hop-sec 0.25 \
+    --sample-rate 16000 \
+    --umap-components 2 \
+    --umap-cluster-components 15 \
+    --umap-neighbors 15 \
+    --min-cluster-size 50 \
+    --batch-size {{ batch_size }} \
+    --embeddings-cache "/tmp/emb_bs{{ batch_size }}.npy" \
+    --output /tmp/results_bs{{ batch_size }}.npz \
+    --score-file /opt/humpback/hbwsc/MARS_20161221_000046_SongSession_10kHz_HPF5Hz_scores.npy \
+    /opt/humpback/hbwsc/MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav
+
+
+###########################
 
 # Install uv (if not already installed)
 install-uv:
