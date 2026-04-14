@@ -64,7 +64,7 @@ def run(
     sample_rate: int = typer.Option(16_000, help="Target sample rate for resampling."),
     model: str = typer.Option(_AVES_BASE_BIO_URL, help="URL to a TorchAudio AVES checkpoint (.pt)."),
     pooling: str = typer.Option("mean", help="Embedding pooling: 'mean' or 'max'."),
-    batch_size: int = typer.Option(16, help="AVES inference batch size. Increase (e.g. 64) on GPU."),
+    batch_size: int = typer.Option(16, help="AVES inference batch size. Increase (e.g. 64, 128) on GPU."),
     umap_components: int = typer.Option(2, help="UMAP dimensions for visualization (2-D scatter plot)."),
     umap_cluster_components: int = typer.Option(
         10,

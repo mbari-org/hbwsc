@@ -73,6 +73,9 @@ umap_components: 2           # for visualization (2-D scatter plot)
 umap_cluster_components: 10  # for HDBSCAN clustering
 umap_neighbors: 15
 
+# AVES embedding
+batch_size: 16               # increase on GPU (e.g. 64, 128)
+
 # HDBSCAN
 min_cluster_size: 100        # default; can be overridden on 'run' command line
 
@@ -170,6 +173,8 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
         str(params.get("umap_neighbors", 15)),
         "--min-cluster-size",
         str(mcs),
+        "--batch-size",
+        str(params.get("batch_size", 16)),
         "--embeddings-cache",
         str(embeddings_cache),
         "--output",
