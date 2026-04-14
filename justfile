@@ -108,6 +108,13 @@ browse_timeline_full segment_minutes='2':
 
 ###########################
 
+# Install uv (if not already installed)
+install-uv:
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+sync:
+    uv sync
+
 dev: test format lint
 
 # Run tests
