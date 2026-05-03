@@ -33,6 +33,7 @@ import matplotlib.widgets as mwidgets
 import numpy as np
 import soundfile as sf
 from scipy.signal import spectrogram as scipy_spectrogram
+from sklearn.metrics import normalized_mutual_info_score, homogeneity_score
 
 _IS_MACOS = platform.system() == "Darwin"
 if not _IS_MACOS:
@@ -130,26 +131,68 @@ _bg   = [None]              # blitting background snapshot
 _audio_proc = [None]        # afplay subprocess (macOS only)
 _tmp_wav    = [None]        # path to current temp WAV (macOS only)
 
-# Precompute per-segment local Jaccard for "best alignment" button
+# Precompute per-segment local Jaccard for "best alignment" button.
+# When manual labels are present, also build a per-window class-index array
+# (manual_window) so NMI/homogeneity can be computed per displayed segment.
 is_clustered = labels >= 0
 is_labelled = np.zeros(len(labels), dtype=bool)
+manual_window = np.full(len(labels), -1, dtype=int)
+unique_types_idx: dict[str, int] = {}
 if manual_labels:
+    unique_types_idx = {t: i for i, t in enumerate(sorted(set(t for _, _, t in manual_labels)))}
     end_secs = r["start_secs"] + 0.5  # window_sec
-    for begin_min, end_min, _ in manual_labels:
+    best_overlap = np.zeros(len(labels), dtype=float)
+    for begin_min, end_min, ltype in manual_labels:
         b, e = begin_min * 60, end_min * 60
-        is_labelled |= (end_secs > b) & (r["start_secs"] < e)
+        overlap = np.minimum(end_secs, e) - np.maximum(r["start_secs"], b)
+        np.clip(overlap, 0.0, None, out=overlap)
+        better = overlap > best_overlap
+        best_overlap = np.where(better, overlap, best_overlap)
+        manual_window = np.where(better, unique_types_idx[ltype], manual_window)
+    is_labelled = manual_window >= 0
 
-seg_jaccard = []
-for i in range(n_segments):
-    t_min = i * seg_minutes
-    t_max = min(t_min + seg_minutes, total_minutes)
+def _segment_metrics(t_min: float, t_max: float) -> dict | None:
+    """DetSim (Jaccard), NMI, Homogeneity for windows in [t_min, t_max) minutes.
+
+    Returns None when no manual labels are loaded.
+    """
+    if not manual_labels:
+        return None
     mask = (x_minutes >= t_min) & (x_minutes < t_max)
     c = is_clustered[mask]
     m = is_labelled[mask]
-    inter = (c & m).sum()
-    union = (c | m).sum()
-    seg_jaccard.append(inter / union if union > 0 else 0.0)
-best_seg = int(np.argmax(seg_jaccard))
+    inter = c & m
+    union = c | m
+    detsim = inter.sum() / union.sum() if union.any() else 0.0
+    if inter.sum() < 2:
+        return {"detsim": detsim, "nmi": float("nan"), "homog": float("nan")}
+    seg_labels = labels[mask][inter]
+    seg_manual = manual_window[mask][inter]
+    nmi = normalized_mutual_info_score(seg_manual, seg_labels)
+    homog = homogeneity_score(seg_manual, seg_labels)
+    return {"detsim": detsim, "nmi": nmi, "homog": homog}
+
+
+# Precompute per-segment metrics for the "best" buttons
+seg_detsim = np.zeros(n_segments)
+seg_nmi    = np.zeros(n_segments)
+seg_homog  = np.zeros(n_segments)
+for i in range(n_segments):
+    t_min = i * seg_minutes
+    t_max = min(t_min + seg_minutes, total_minutes)
+    metr = _segment_metrics(t_min, t_max)
+    if metr is None:
+        # No manual labels — fall back to fraction of clustered windows so the
+        # "Best" button still has something useful to jump to.
+        mask = (x_minutes >= t_min) & (x_minutes < t_max)
+        seg_detsim[i] = is_clustered[mask].mean() if mask.any() else 0.0
+    else:
+        seg_detsim[i] = metr["detsim"]
+        seg_nmi[i]    = 0.0 if np.isnan(metr["nmi"])   else metr["nmi"]
+        seg_homog[i]  = 0.0 if np.isnan(metr["homog"]) else metr["homog"]
+best_seg_detsim = int(np.argmax(seg_detsim))
+best_seg_nmi    = int(np.argmax(seg_nmi))
+best_seg_homog  = int(np.argmax(seg_homog))
 
 # ---------------------------------------------------------------------------
 # Figure layout  (add manual strip if labels provided)
@@ -166,15 +209,14 @@ else:
     ax_time = fig.add_axes([0.05, 0.20, 0.93, 0.10])
     ax_manu = None
 
-bw = 0.08  # button width
-ax_first  = fig.add_axes([0.14, 0.02, bw, 0.07])
-ax_prev   = fig.add_axes([0.23, 0.02, bw, 0.07])
-ax_info   = fig.add_axes([0.32, 0.02, bw, 0.07])
-ax_next   = fig.add_axes([0.41, 0.02, bw, 0.07])
-ax_last   = fig.add_axes([0.50, 0.02, bw, 0.07])
-ax_play   = fig.add_axes([0.61, 0.02, bw, 0.07])
-ax_rewind = fig.add_axes([0.70, 0.02, bw, 0.07])
-ax_best   = fig.add_axes([0.79, 0.02, bw, 0.07])
+bw = 0.05  # button width
+ax_first  = fig.add_axes([0.06, 0.02, bw, 0.07])
+ax_prev   = fig.add_axes([0.12, 0.02, bw, 0.07])
+ax_next   = fig.add_axes([0.18, 0.02, bw, 0.07])
+ax_last   = fig.add_axes([0.24, 0.02, bw, 0.07])
+ax_play   = fig.add_axes([0.40, 0.02, bw, 0.07])
+ax_rewind = fig.add_axes([0.46, 0.02, bw, 0.07])
+ax_best_d = fig.add_axes([0.55, 0.02, bw, 0.07])
 
 btn_first  = mwidgets.Button(ax_first,  "|◀ First")
 btn_prev   = mwidgets.Button(ax_prev,   "◀  Prev")
@@ -182,9 +224,15 @@ btn_next   = mwidgets.Button(ax_next,   "Next  ▶")
 btn_last   = mwidgets.Button(ax_last,   "Last ▶|")
 btn_play   = mwidgets.Button(ax_play,   "▶  Play")
 btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
-btn_best   = mwidgets.Button(ax_best,   "★ Best")
-ax_info.axis("off")
-info_text = ax_info.text(0.5, 0.5, "", ha="center", va="center", fontsize=9, transform=ax_info.transAxes)
+btn_best_d = mwidgets.Button(ax_best_d, "★ DetSim")
+
+# NMI / Homogeneity best-segment buttons only when manual labels are loaded.
+btn_best_n = btn_best_h = None
+if manual_labels:
+    ax_best_n = fig.add_axes([0.61, 0.02, bw, 0.07])
+    ax_best_h = fig.add_axes([0.67, 0.02, bw, 0.07])
+    btn_best_n = mwidgets.Button(ax_best_n, "★ NMI")
+    btn_best_h = mwidgets.Button(ax_best_h, "★ Homog")
 
 # ---------------------------------------------------------------------------
 # Draw helpers
@@ -214,7 +262,13 @@ def draw(idx):
                        cmap="Blues_r", rasterized=True)
     ax_spec.set_xlim(t_min, t_max)
     ax_spec.set_ylabel("Freq (Hz)")
-    ax_spec.set_title(f"{args.npz.parent.name}  [{fmt_hm(t_min)} – {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})")
+    metrics = _segment_metrics(t_min, t_max)
+    title = f"{args.npz.parent.name}  [{fmt_hm(t_min)} – {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
+    if metrics is not None:
+        nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
+        hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
+        title += f"   DetSim: {metrics['detsim']:.2f}   NMI: {nmi}   Homog: {hom}"
+    ax_spec.set_title(title)
     ax_spec.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
     ax_spec.tick_params(labelbottom=False)
 
@@ -276,8 +330,6 @@ def draw(idx):
     else:
         ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
         ax_time.set_xlabel("Time (h:mm:ss)")
-
-    info_text.set_text(f"{idx + 1} / {n_segments}")
 
     # Full synchronous draw, then snapshot background (vline excluded via animated=True)
     fig.canvas.draw()
@@ -355,9 +407,21 @@ def on_last(_event):
     draw(seg_idx[0])
 
 
-def on_best(_event):
+def on_best_detsim(_event):
     stop_playback()
-    seg_idx[0] = best_seg
+    seg_idx[0] = best_seg_detsim
+    draw(seg_idx[0])
+
+
+def on_best_nmi(_event):
+    stop_playback()
+    seg_idx[0] = best_seg_nmi
+    draw(seg_idx[0])
+
+
+def on_best_homog(_event):
+    stop_playback()
+    seg_idx[0] = best_seg_homog
     draw(seg_idx[0])
 
 
@@ -421,7 +485,11 @@ def on_key(event):
     elif event.key == "end":
         on_last(None)
     elif event.key == "b":
-        on_best(None)
+        on_best_detsim(None)
+    elif event.key == "n" and manual_labels:
+        on_best_nmi(None)
+    elif event.key == "m" and manual_labels:
+        on_best_homog(None)
     elif event.key == "r":
         on_rewind(None)
 
@@ -432,7 +500,11 @@ btn_next.on_clicked(on_next)
 btn_last.on_clicked(on_last)
 btn_play.on_clicked(on_play)
 btn_rewind.on_clicked(on_rewind)
-btn_best.on_clicked(on_best)
+btn_best_d.on_clicked(on_best_detsim)
+if btn_best_n is not None:
+    btn_best_n.on_clicked(on_best_nmi)
+if btn_best_h is not None:
+    btn_best_h.on_clicked(on_best_homog)
 fig.canvas.mpl_connect("key_press_event", on_key)
 
 
