@@ -3,18 +3,24 @@
 
 # Audio input — one or more WAV files
 audio_files:
-  - ../../MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav
+  # - ../../MARS_20161221_000046_32kHz.wav
+  - ../../MARS_20161221_000046_32kHz_gain_50_1h.wav
 
 ## NOTE: NO SCORING USED.
 
+# Use Perch
+embedder_type: perch
+
 # Windowing
-window_sec: 0.5
-hop_sec: 0.25
-sample_rate: 16000
+# window_sec: 0.5
+window_sec: 5.0
+# hop_sec: 0.25
+hop_sec: 1.0
+sample_rate: 32000
 
 # UMAP
 umap_components: 2           # for visualization (2-D scatter plot)
-umap_cluster_components: 10  # for HDBSCAN clustering
+umap_cluster_components: 20  # for HDBSCAN clustering
 umap_neighbors: 15
 
 # HDBSCAN

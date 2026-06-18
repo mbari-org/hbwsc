@@ -50,6 +50,10 @@ export-all-clusters npz window_sec n="10":
 plot-timeline npz:
     uv run python scripts/plot_timeline.py {{ npz }}
 
+# Plot proportional cluster density over time (saves <stem>_density.png)
+plot-density npz window_sec="5":
+    uv run python scripts/plot_density.py {{ npz }} --window-sec {{ window_sec }}
+
 # Export Raven Pro selection table (saves <stem>_raven.txt)
 export-raven npz window_sec:
     uv run python scripts/export_raven_table.py {{ npz }} {{ window_sec }}

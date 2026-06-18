@@ -9,7 +9,7 @@ from typing import Sequence
 import numpy as np
 
 from hbws_clustering.clustering import HdbscanClusterer
-from hbws_clustering.embedding import AVES_BASE_BIO, AvesEmbedder
+from hbws_clustering.embedding import AVES_BASE_BIO, AvesEmbedder, PerchEmbedder
 from hbws_clustering.reduction import UmapReducer
 from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower, Window
 
@@ -61,7 +61,7 @@ class ClusteringPipeline:
     """
 
     windower: AudioWindower | ScoreGuidedWindower = field(default_factory=AudioWindower)
-    embedder: AvesEmbedder = field(default_factory=lambda: AvesEmbedder(model_url=AVES_BASE_BIO))
+    embedder: AvesEmbedder | PerchEmbedder = field(default_factory=lambda: AvesEmbedder(model_url=AVES_BASE_BIO))
     reducer: UmapReducer = field(default_factory=UmapReducer)
     reducer_cluster: UmapReducer | None = None  # high-D UMAP for clustering; None → use reducer
     clusterer: HdbscanClusterer = field(default_factory=HdbscanClusterer)
@@ -119,7 +119,7 @@ class ClusteringPipeline:
         if not windows:
             raise ValueError("No windows extracted — check audio paths and window/score settings.")
 
-        self._log("Step 2/4: Extracting AVES embeddings...")
+        self._log("Step 2/4: Extracting embeddings...")
         embeddings = self._load_or_compute_embeddings(windows, embeddings_cache)
         self._log(f"  Embeddings shape: {embeddings.shape}")
 

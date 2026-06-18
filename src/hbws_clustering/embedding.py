@@ -15,11 +15,18 @@ import numpy as np
 import torch
 import torchaudio
 
+import tensorflow as tf
+import tensorflow_hub as hub
+
 from hbws_clustering.windowing import Window
 
 # TorchAudio-format checkpoints published by the Earth Species Project.
 AVES_BASE_BIO = "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-bio.torchaudio.pt"
 AVES_BASE_ALL = "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-all.torchaudio.pt"
+
+# Google PERCH Model Link from Kaggle
+PERCH_GPU = "https://www.kaggle.com/models/google/bird-vocalization-classifier/tensorFlow2/perch_v2/2"
+PERCH_CPU = "https://www.kaggle.com/models/google/bird-vocalization-classifier/tensorFlow2/perch_v2_cpu/1"
 
 # Local cache directory (mirrors torch.hub convention)
 _CACHE_DIR = Path(torch.hub.get_dir()) / "aves"
@@ -104,3 +111,72 @@ class AvesEmbedder:
             raise ValueError(f"Unknown pooling mode: {self.pooling!r}. Use 'mean' or 'max'.")
 
         return pooled.cpu().float().numpy()
+
+
+@dataclass
+class PerchEmbedder:
+    """Extract frame-level or pooled PERCH embeddings for audio windows.
+
+    The model checkpoint is downloaded once and cached locally under
+    ``torch.hub.get_dir()/aves/``.
+
+    Parameters
+    ----------
+    model_url:
+        Kaggle url for Google's Perch model.
+    pooling:
+        How to aggregate frame-level features into a single vector per window.
+        ``"mean"`` (default) averages over time; ``"max"`` takes the maximum.
+    batch_size:
+        Number of windows processed per forward pass.
+    """
+
+  
+
+    model_url: str = PERCH_CPU
+    pooling: str = "mean"
+    batch_size: int = 16
+
+    _model: any = field(init=False, repr=False, default=None)
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        self._model = hub.load(self.model_url)
+
+    def embed_windows(self, windows: Sequence[Window]) -> np.ndarray:
+        """Return an (N, D) float32 array of embeddings for *windows*."""
+        from tqdm import tqdm
+
+        self._load()
+        all_embeddings: list[np.ndarray] = []
+
+        with tqdm(total=len(windows), unit="win", desc="Perch embeddings") as bar:
+            for batch_start in range(0, len(windows), self.batch_size):
+                batch = list(windows[batch_start : batch_start + self.batch_size])
+                all_embeddings.append(self._embed_batch(batch))
+                bar.update(len(batch))
+
+        return np.concatenate(all_embeddings, axis=0)
+
+    def _embed_batch(self, batch: list[Window]) -> np.ndarray:
+        waveforms = np.stack([w.audio for w in batch]).astype(np.float32)
+
+        # Perch expects exactly 160,000 samples (5.0 seconds at 32kHz)
+        # Tile short window until 5 seconds
+        target_len = 160000
+        current_len = waveforms.shape[1]
+        if current_len < target_len:
+            # Calculate how many times we need to repeat to reach or exceed target_len
+            reps = int(np.ceil(target_len / current_len))
+            # Tile along the time axis (axis 1)
+            waveforms = np.tile(waveforms, (1, reps))
+            # Truncate to exactly target_len
+            waveforms = waveforms[:, :target_len]
+
+        model_outputs = self._model.signatures['serving_default'](inputs=waveforms)
+
+        # "embedding" key gives the actual perch embeddings
+        pooled = model_outputs['embedding'].numpy()
+
+        return pooled

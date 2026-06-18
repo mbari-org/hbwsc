@@ -69,6 +69,24 @@ colours[-1] = (0.75, 0.75, 0.75, 0.4)
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0
 x_minutes = start_secs / 60.0
 
+# --- Density data (5-second bins) ------------------------------------------
+window_min = 5.0 / 60.0
+dens_bins = np.arange(x_minutes.min(), x_minutes.max() + window_min, window_min)
+dens_centers = dens_bins[:-1] + window_min / 2.0
+dens_counts = {lbl: np.zeros(len(dens_bins) - 1) for lbl in unique_labels}
+dens_indices = np.digitize(x_minutes, dens_bins) - 1
+for i, lbl in zip(dens_indices, labels):
+    if 0 <= i < len(dens_bins) - 1:
+        dens_counts[lbl][i] += 1
+dens_total = np.sum([dens_counts[lbl] for lbl in unique_labels], axis=0)
+dens_total[dens_total == 0] = 1
+dens_data = [dens_counts[lbl] / dens_total for lbl in unique_labels]
+dens_colors = [colours[lbl] for lbl in unique_labels]
+
+# Create step-function arrays for stackplot to draw flat-topped bins
+dens_x_step = np.repeat(dens_bins, 2)[1:-1]
+dens_y_step = [np.repeat(d, 2) for d in dens_data]
+
 # ---------------------------------------------------------------------------
 # Load manual labels (Raven format)
 # ---------------------------------------------------------------------------
@@ -198,15 +216,17 @@ best_seg_homog  = int(np.argmax(seg_homog))
 # Figure layout  (add manual strip if labels provided)
 # ---------------------------------------------------------------------------
 
-fig = plt.figure(figsize=(20, 9 if manual_labels else 7))
+fig = plt.figure(figsize=(20, 10 if manual_labels else 8))
 
 if manual_labels:
-    ax_spec = fig.add_axes([0.05, 0.34, 0.93, 0.55])
-    ax_time = fig.add_axes([0.05, 0.24, 0.93, 0.08])
-    ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.08])
+    ax_spec = fig.add_axes([0.05, 0.44, 0.93, 0.45])
+    ax_time = fig.add_axes([0.05, 0.34, 0.93, 0.08])
+    ax_manu = fig.add_axes([0.05, 0.24, 0.93, 0.08])
+    ax_dens = fig.add_axes([0.05, 0.14, 0.93, 0.08])
 else:
-    ax_spec = fig.add_axes([0.05, 0.32, 0.93, 0.60])
-    ax_time = fig.add_axes([0.05, 0.20, 0.93, 0.10])
+    ax_spec = fig.add_axes([0.05, 0.38, 0.93, 0.54])
+    ax_time = fig.add_axes([0.05, 0.26, 0.93, 0.10])
+    ax_dens = fig.add_axes([0.05, 0.14, 0.93, 0.10])
     ax_manu = None
 
 bw = 0.05  # button width
@@ -294,6 +314,22 @@ def draw(idx):
     ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
                    ncol=min(n_clusters + 1, 12), fontsize=7, framealpha=0.8, borderaxespad=0)
 
+    # --- density strip --------------------------------------------------------
+    ax_dens.cla()
+    mask_seg_dens = (dens_x_step >= t_min - window_min) & (dens_x_step <= t_max + window_min)
+    if mask_seg_dens.any():
+        seg_x = dens_x_step[mask_seg_dens]
+        seg_data = [d[mask_seg_dens] for d in dens_y_step]
+        ax_dens.stackplot(seg_x, *seg_data, colors=dens_colors, linewidth=0)
+    ax_dens.set_xlim(t_min, t_max)
+    ax_dens.set_ylim(0, 1.0)
+    ax_dens.set_yticks([])
+    ax_dens.set_ylabel("density", fontsize=7)
+    
+    ax_dens.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
+    ax_dens.tick_params(labelbottom=True)
+    ax_dens.set_xlabel("Time (h:mm:ss)")
+
     # --- manual labels strip --------------------------------------------------
     if ax_manu is not None:
         ax_manu.cla()
@@ -320,16 +356,12 @@ def draw(idx):
         ax_manu.set_ylim(-0.5, 0.5)
         ax_manu.set_yticks([])
         ax_manu.set_ylabel("manual", fontsize=7)
-        ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-        ax_manu.set_xlabel("Time (h:mm:ss)")
+        ax_manu.tick_params(labelbottom=False)
 
         mhandles, mlbls = ax_manu.get_legend_handles_labels()
         if mhandles:
             ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
                            ncol=min(len(manual_colours), 15), fontsize=7, framealpha=0.8, borderaxespad=0)
-    else:
-        ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-        ax_time.set_xlabel("Time (h:mm:ss)")
 
     # Full synchronous draw, then snapshot background (vline excluded via animated=True)
     fig.canvas.draw()

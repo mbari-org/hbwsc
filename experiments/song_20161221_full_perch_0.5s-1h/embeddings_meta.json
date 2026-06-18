@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-06-16T20:20:50.511499+00:00",
+  "n_windows": 14399,
+  "embedding_dim": 1536,
+  "source_files": [
+    "/Users/araizman/hbwsc/MARS_20161221_000046_32kHz_gain_50_1h.wav"
+  ],
+  "window_sec": 0.5,
+  "hop_sec": 0.25,
+  "score_threshold": null,
+  "score_file": null,
+  "score_dir": null
+}

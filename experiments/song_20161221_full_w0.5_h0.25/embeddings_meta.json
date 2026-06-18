@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-04-07T19:18:09.498976+00:00",
+  "generated_at": "2026-06-16T18:26:04.072528+00:00",
   "n_windows": 66528,
   "embedding_dim": 768,
   "source_files": [
-    "/Users/carueda/github/mbari-org/hbws_clustering/MARS_20161221_000046_SongSession_10kHz_HPF5Hz.wav"
+    "/Users/araizman/hbwsc/MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav"
   ],
   "window_sec": 0.5,
   "hop_sec": 0.25,

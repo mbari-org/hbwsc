@@ -186,6 +186,11 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
     elif "score_dir" in params:
         cmd += ["--score-dir", str(params["score_dir"])]
 
+    if "embedder_type" in params:
+        cmd += ["--embedder-type", str(params["embedder_type"])]
+    if "model" in params:
+        cmd += ["--model", str(params["model"])]
+
     cmd += audio_files
     run_cmd(cmd)
 
@@ -279,6 +284,11 @@ def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):
     if seg_minutes:
         timeline_cmd += ["--segment-minutes", str(seg_minutes)]
     run_cmd(timeline_cmd)
+    
+    density_cmd = ["uv", "run", "python", "scripts/plot_density.py", str(npz), str(timeline_dir / "density.png")]
+    if seg_minutes:
+        density_cmd += ["--segment-minutes", str(seg_minutes)]
+    run_cmd(density_cmd)
 
     run_cmd(["uv", "run", "python", "scripts/export_raven_table.py", str(npz), window_sec, str(d / "raven.txt")])
 
