@@ -80,7 +80,7 @@ def _init_worker(shm_name: str, shape: tuple, dtype_str: str) -> None:
     _shm_dtype = np.dtype(dtype_str)
 
 
-def run_one(umap_dims: int, mcs: int, n_neighbors: int) -> dict:
+def run_one(umap_dims: int, mcs: int, n_neighbors: int, eps: float, alpha: float) -> dict:
     shm = SharedMemory(name=_shm_name)
     embeddings = np.ndarray(_shm_shape, dtype=_shm_dtype, buffer=shm.buf)
     t0 = time.perf_counter()
@@ -99,6 +99,8 @@ def run_one(umap_dims: int, mcs: int, n_neighbors: int) -> dict:
         min_samples=mcs,
         metric="euclidean",
         cluster_selection_method="eom",
+        cluster_selection_epsilon=eps,
+        alpha=alpha,
         gen_min_span_tree=True,
     )
     clusterer.fit(reduced)
@@ -142,6 +144,8 @@ def main() -> None:
     parser.add_argument("--mcs", default="50,100,200", help="Comma-separated min_cluster_size values")
     parser.add_argument("--neighbors", type=int, default=15, help="UMAP n_neighbors")
     parser.add_argument("--out", type=Path, default=None, help="Save results as CSV")
+    parser.add_argument("--epsilon", type=float, default=0.0, help="HDBSCAN cluster_selection_epsilon")
+    parser.add_argument("--alpha", type=float, default=1.0, help="HDBSCAN alpha")
     parser.add_argument(
         "--workers", type=int, default=2, help="Parallel workers (default: 2; UMAP uses significant memory per worker)"
     )
@@ -198,7 +202,7 @@ def main() -> None:
         initargs = (shm.name, emb_shape, emb_dtype.str)
         with ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker, initargs=initargs) as executor:
             futures = {
-                executor.submit(run_one, dims, mcs, n_neighbors): (dims, mcs) for dims in dims_list for mcs in mcs_list
+                executor.submit(run_one, dims, mcs, n_neighbors, args.epsilon, args.alpha): (dims, mcs) for dims in dims_list for mcs in mcs_list
             }
             for f in as_completed(futures):
                 row = f.result()

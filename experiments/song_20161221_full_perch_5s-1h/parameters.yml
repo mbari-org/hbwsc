@@ -24,7 +24,7 @@ umap_cluster_components: 20  # for HDBSCAN clustering
 umap_neighbors: 15
 
 # HDBSCAN
-min_cluster_size: 100
+min_cluster_size: 200
 
 # Hyperparameter sweep
 sweep_dims: "2,5,10,15,20,30"

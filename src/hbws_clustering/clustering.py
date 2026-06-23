@@ -32,6 +32,7 @@ class HdbscanClusterer:
     min_cluster_size: int = 5
     min_samples: int | None = None
     cluster_selection_epsilon: float = 0.0
+    alpha: float = 1.0
     metric: str = "euclidean"
     cluster_selection_method: str = "eom"
 
@@ -44,6 +45,7 @@ class HdbscanClusterer:
             min_cluster_size=self.min_cluster_size,
             min_samples=min_samples,
             cluster_selection_epsilon=self.cluster_selection_epsilon,
+            alpha=self.alpha,
             metric=self.metric,
             cluster_selection_method=self.cluster_selection_method,
         )

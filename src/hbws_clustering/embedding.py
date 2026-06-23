@@ -135,7 +135,7 @@ class PerchEmbedder:
 
     model_url: str = PERCH_CPU
     pooling: str = "mean"
-    batch_size: int = 16
+    batch_size: int = 64  # Increased from 16 for better CPU parallelism (note: I couldn't tell a difference)
 
     _model: any = field(init=False, repr=False, default=None)
 

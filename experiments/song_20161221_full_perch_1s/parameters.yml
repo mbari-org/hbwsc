@@ -4,7 +4,7 @@
 # Audio input — one or more WAV files
 audio_files:
   # - ../../MARS_20161221_000046_32kHz.wav
-  - ../../MARS_20161221_000046_32kHz_gain_50_1h.wav
+  - ../../MARS_20161221_000046_32kHz_gain_50.wav
 
 ## NOTE: NO SCORING USED.
 
@@ -13,7 +13,7 @@ embedder_type: perch
 
 # Windowing
 # window_sec: 0.5
-window_sec: 0.5
+window_sec: 1
 hop_sec: 0.25
 sample_rate: 32000
 
@@ -23,9 +23,7 @@ umap_cluster_components: 10  # for HDBSCAN clustering
 umap_neighbors: 15
 
 # HDBSCAN
-min_cluster_size: 100
-# hdbscan_epsilon: 0.5 # Initial tests show that epsilon doesn't help too much
-# hdbscan_alpha: 1.3 # HDBSCAN Documentation says to not touch this ever: https://hdbscan.readthedocs.io/en/latest/parameter_selection.html#selecting-alpha
+min_cluster_size: 200
 
 # Hyperparameter sweep
 sweep_dims: "2,5,10,15,20,30"

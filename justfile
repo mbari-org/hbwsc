@@ -90,6 +90,10 @@ analyze-session dir mcs="":
 inspect-session dir mcs="":
     uv run python scripts/session.py {{ dir }} inspect {{ mcs }}
 
+run-inference src_dir targ_dir train_out="" pred_out="":
+    uv run python scripts/train_classifier.py {{ src_dir }}/results.npz {{ train_out }}
+    uv run python scripts/predict.py {{ targ_dir }}/parameters.yml {{ src_dir }}/models/results_model.pkl {{ pred_out }}
+
 
 ###########################
 

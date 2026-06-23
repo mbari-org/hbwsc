@@ -78,6 +78,8 @@ umap_neighbors: 15
 
 # HDBSCAN
 min_cluster_size: 100        # default; can be overridden on 'run' command line
+hdbscan_alpha: 1.0           # scaling for distance matrix
+hdbscan_epsilon: 0.0         # threshold below which clusters are merged
 
 # Hyperparameter sweep
 sweep_dims: "2,5,10,15,20,30"
@@ -116,7 +118,18 @@ def load_params(session_dir: Path) -> dict:
 def mcs_dir(session_dir: Path, params: dict, mcs_arg: str) -> tuple[Path, int]:
     mcs = int(mcs_arg) if mcs_arg else int(params.get("min_cluster_size", 100))
     umap_dims = int(params.get("umap_cluster_components", 10))
-    d = session_dir / f"umap{umap_dims}_mcs{mcs}"
+    
+    folder_name = f"umap{umap_dims}_mcs{mcs}"
+    
+    eps = params.get("hdbscan_epsilon", 0.0)
+    if eps != 0.0:
+        folder_name += f"_eps{eps}"
+        
+    alpha = params.get("hdbscan_alpha", 1.0)
+    if alpha != 1.0:
+        folder_name += f"_alpha{alpha}"
+        
+    d = session_dir / folder_name
     d.mkdir(parents=True, exist_ok=True)
     return d, mcs
 
@@ -173,6 +186,10 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
         str(params.get("umap_neighbors", 15)),
         "--min-cluster-size",
         str(mcs),
+        "--alpha",
+        str(params.get("hdbscan_alpha", 1.0)),
+        "--epsilon",
+        str(params.get("hdbscan_epsilon", 0.0)),
         "--batch-size",
         str(params.get("batch_size", 16)),
         "--embeddings-cache",
@@ -243,6 +260,15 @@ def cmd_sweep(session_dir: Path, params: dict):
     sweep_out = session_dir / "sweep"
     sweep_out.mkdir(exist_ok=True)
     n_workers = params.get("sweep_workers", 2)
+    
+    csv_name = f"results_workers{n_workers}"
+    eps = params.get("hdbscan_epsilon", 0.0)
+    alpha = params.get("hdbscan_alpha", 1.0)
+    if eps != 0.0:
+        csv_name += f"_eps{eps}"
+    if alpha != 1.0:
+        csv_name += f"_alpha{alpha}"
+    csv_name += ".csv"
 
     run_cmd(
         [
@@ -257,10 +283,14 @@ def cmd_sweep(session_dir: Path, params: dict):
             str(params.get("sweep_mcs", "50,100,200")),
             "--neighbors",
             str(params.get("umap_neighbors", 15)),
+            "--epsilon",
+            str(eps),
+            "--alpha",
+            str(alpha),
             "--workers",
             str(n_workers),
             "--out",
-            str(sweep_out / f"results_workers{n_workers}.csv"),
+            str(sweep_out / csv_name),
         ]
     )
 
