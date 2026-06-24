@@ -433,3 +433,5 @@ else:
         cmd_analyze(session_dir, params, extra)
     elif command == "inspect":
         cmd_inspect(session_dir, params, extra)
+    elif command == "sweep-embed":
+        cmd_sweep_embed(session_dir, params)
