@@ -408,7 +408,7 @@ def cmd_inspect(session_dir: Path, params: dict, mcs_arg: str):
 # Entry point
 # ---------------------------------------------------------------------------
 
-COMMANDS = {"init", "run", "sweep", "analyze", "inspect"}
+COMMANDS = {"init", "run", "sweep", "analyze", "inspect", "sweep-embed"}
 
 if len(sys.argv) < 3 or sys.argv[2] not in COMMANDS:
     print(__doc__)

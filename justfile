@@ -82,6 +82,10 @@ run-session dir mcs="":
 sweep-session dir:
     uv run python scripts/session.py {{ dir }} sweep
 
+# Run the embedding hyperparameter sweep for a session
+sweep-embed-session dir:
+    uv run python scripts/session.py {{ dir }} sweep-embed
+
 # Generate all analysis outputs for a session run (timeline, umap, raven, clusters)
 analyze-session dir mcs="":
     uv run python scripts/session.py {{ dir }} analyze {{ mcs }}
