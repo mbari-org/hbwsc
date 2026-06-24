@@ -42,7 +42,7 @@ class AudioWindower:
     window_sec: float = 2.0
     hop_sec: float | None = None
     target_sr: int = 16_000
-    min_window_sec: float = 0.5
+    min_window_sec: float = 0.25
     _hop_sec: float = field(init=False, repr=False)
 
     def __post_init__(self) -> None:

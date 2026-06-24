@@ -3,7 +3,7 @@
 
 # Audio input — one or more WAV files
 audio_files:
-  - ../../MARS_20161221_000046_32kHz.wav
+  - ../../MARS_20161221_000046_32kHz_gain_50.wav
 
 ## NOTE: NO SCORING USED.
 
