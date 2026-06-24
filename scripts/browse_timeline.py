@@ -62,8 +62,8 @@ unique_labels = sorted(np.unique(labels).tolist())
 cluster_labels = [lbl for lbl in unique_labels if lbl >= 0]
 n_clusters = len(cluster_labels)
 
-cmap = plt.get_cmap("tab10" if n_clusters <= 10 else "tab20")
-colours = {lbl: cmap(i / max(n_clusters - 1, 1)) for i, lbl in enumerate(cluster_labels)}
+cmap = plt.get_cmap("tab20")
+colours = {lbl: cmap.colors[lbl % len(cmap.colors)] for lbl in cluster_labels}
 colours[-1] = (0.75, 0.75, 0.75, 0.4)
 
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0

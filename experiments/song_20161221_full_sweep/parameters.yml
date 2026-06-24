@@ -3,10 +3,16 @@
 
 # Audio input — one or more WAV files
 audio_files:
-  # - ../../MARS_20161221_000046_32kHz.wav
-  - ../../olive_4e_apr_1_2024_maui_32khz.wav
+  - ../../MARS_20161221_000046_32kHz.wav
 
 ## NOTE: NO SCORING USED.
+
+## SWEEP PARAMS
+embedding_sweep:
+  window_sec: [0.25,0.5,1.0,1.5,2.0]
+  hop_sec: [0.25,0.5,1.0,1.5,2.0]
+  embedder_type: ["perch"] # the sweep can handle more than 1, but I have yet to implement needing to use two audio files for this
+
 
 # Use Perch
 embedder_type: perch

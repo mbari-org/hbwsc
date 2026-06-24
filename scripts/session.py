@@ -38,8 +38,10 @@ Usage
 import json
 import subprocess
 import sys
+import copy
 from datetime import datetime, timezone
 from pathlib import Path
+from itertools import product
 
 try:
     import yaml
@@ -270,29 +272,80 @@ def cmd_sweep(session_dir: Path, params: dict):
         csv_name += f"_alpha{alpha}"
     csv_name += ".csv"
 
-    run_cmd(
-        [
-            "uv",
-            "run",
-            "python",
-            "scripts/sweep.py",
-            str(embeddings_cache),
-            "--dims",
-            str(params.get("sweep_dims", "2,5,10,15,20,30")),
-            "--mcs",
-            str(params.get("sweep_mcs", "50,100,200")),
-            "--neighbors",
-            str(params.get("umap_neighbors", 15)),
-            "--epsilon",
-            str(eps),
-            "--alpha",
-            str(alpha),
-            "--workers",
-            str(n_workers),
-            "--out",
-            str(sweep_out / csv_name),
-        ]
-    )
+    d, _ = mcs_dir(session_dir, params, "")
+    npz = d / "results.npz"
+
+    cmd = [
+        "uv",
+        "run",
+        "python",
+        "scripts/sweep.py",
+        str(embeddings_cache),
+        "--dims",
+        str(params.get("sweep_dims", "2,5,10,15,20,30")),
+        "--mcs",
+        str(params.get("sweep_mcs", "50,100,200")),
+        "--neighbors",
+        str(params.get("umap_neighbors", 15)),
+        "--epsilon",
+        str(eps),
+        "--alpha",
+        str(alpha),
+        "--workers",
+        str(n_workers),
+        "--out",
+        str(sweep_out / csv_name),
+    ]
+
+    if "manual_labels" in params:
+        manual_labels = Path(params["manual_labels"])
+        if not manual_labels.is_absolute():
+            manual_labels = session_dir / manual_labels
+        if manual_labels.exists() and npz.exists():
+            cmd.extend(["--manual-labels", str(manual_labels), "--npz", str(npz), "--window-sec", str(params["window_sec"])])
+
+    run_cmd(cmd)
+
+
+def cmd_sweep_embed(session_dir: Path, params: dict):
+    sweep_config = params.get("embedding_sweep", {})
+    if not sweep_config:
+        print("Could nto find 'embedding_sweep' block in parameters.yml")
+        return
+    
+    # sweep session directory
+    sweep_out_dir = session_dir / "sweep_embed"
+    sweep_out_dir.mkdir(exist_ok=True)
+
+    for window_sec, hop_sec, embedder_type in product(sweep_config.get("window_sec"), sweep_config.get("hop_sec"), sweep_config.get("embedder_type")):
+        # skip if the hop and window combination makes the sweep skip audio
+        if hop_sec > window_sec:
+            continue
+        # make sub directory for each sweep session
+        sweep_sesh_name = f"win{window_sec}_hop{hop_sec}_{embedder_type}"
+        sweep_sesh_dir = sweep_out_dir / sweep_sesh_name
+        sweep_sesh_dir.mkdir(exist_ok=True)
+
+        # for each subdirectory, create a new, non-embed_sweep paramater file
+        child_params = copy.deepcopy(params)
+        if "embedding_sweep" in child_params:
+            del child_params["embedding_sweep"]
+
+        child_params["window_sec"] = window_sec
+        child_params["hop_sec"] = hop_sec
+        child_params["embedder_type"] = embedder_type
+
+        child_yml = sweep_sesh_dir / "parameters.yml"
+        with open(child_yml, "w") as f:
+            yaml.dump(child_params, f, sort_keys=False)
+            
+        print(f"Created embedding sweep: {sweep_sesh_name}, running pipeline:")
+
+        cmd_run(sweep_sesh_dir, load_params(sweep_sesh_dir), "")
+        
+        print(f"Clustering session...")
+
+        cmd_sweep(sweep_sesh_dir, child_params)
 
 
 def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):

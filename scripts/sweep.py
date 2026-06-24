@@ -65,6 +65,7 @@ from pathlib import Path
 import hdbscan
 import numpy as np
 import umap as umap_lib
+from sklearn.metrics import normalized_mutual_info_score, homogeneity_completeness_v_measure
 
 # Worker receives shared-memory metadata instead of the array itself.
 _shm_name: str | None = None
@@ -80,7 +81,7 @@ def _init_worker(shm_name: str, shape: tuple, dtype_str: str) -> None:
     _shm_dtype = np.dtype(dtype_str)
 
 
-def run_one(umap_dims: int, mcs: int, n_neighbors: int, eps: float, alpha: float) -> dict:
+def run_one(umap_dims: int, mcs: int, n_neighbors: int, eps: float, alpha: float, manual_window=None) -> dict:
     shm = SharedMemory(name=_shm_name)
     embeddings = np.ndarray(_shm_shape, dtype=_shm_dtype, buffer=shm.buf)
     t0 = time.perf_counter()
@@ -121,9 +122,34 @@ def run_one(umap_dims: int, mcs: int, n_neighbors: int, eps: float, alpha: float
     else:
         median_sz = min_sz = max_sz = 0
         dbcv = float("nan")
+    
+    # Similarity metrics
+    if manual_window is not None:
+        is_clustered = labels >= 0
+        is_labelled = manual_window >= 0
+        in_both = is_clustered & is_labelled
+        
+        intersection = in_both.sum()
+        union = (is_clustered | is_labelled).sum()
+        jaccard = float(intersection / union) if union > 0 else 0.0
+        
+        c_in = labels[in_both]
+        m_in = manual_window[in_both]
+        if len(m_in) > 0:
+            nmi = float(normalized_mutual_info_score(m_in, c_in))
+            v_hom, _, _ = homogeneity_completeness_v_measure(m_in, c_in)
+            v_hom = float(v_hom)
+        else:
+            nmi = 0.0
+            v_hom = 0.0
+    else:
+        jaccard = float("nan")
+        nmi = float("nan")
+        v_hom = float("nan")
 
     shm.close()
-    return {
+    
+    ret = {
         "umap_dims": umap_dims,
         "mcs": mcs,
         "n_clusters": n_clusters,
@@ -135,6 +161,13 @@ def run_one(umap_dims: int, mcs: int, n_neighbors: int, eps: float, alpha: float
         "t_umap_s": round(t_umap, 1),
         "t_hdbscan_s": round(t_hdbscan, 1),
     }
+    
+    if manual_window is not None:
+        ret["detsim"] = round(jaccard, 4)
+        ret["nmi"] = round(nmi, 4)
+        ret["homog"] = round(v_hom, 4)
+        
+    return ret
 
 
 def main() -> None:
@@ -146,6 +179,9 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=None, help="Save results as CSV")
     parser.add_argument("--epsilon", type=float, default=0.0, help="HDBSCAN cluster_selection_epsilon")
     parser.add_argument("--alpha", type=float, default=1.0, help="HDBSCAN alpha")
+    parser.add_argument("--manual-labels", type=Path, default=None, help="Path to manual labels (Raven format) for supervised metrics")
+    parser.add_argument("--npz", type=Path, default=None, help="Path to results.npz to read start_secs from (required if --manual-labels is used)")
+    parser.add_argument("--window-sec", type=float, default=None, help="Analysis window size in seconds")
     parser.add_argument(
         "--workers", type=int, default=2, help="Parallel workers (default: 2; UMAP uses significant memory per worker)"
     )
@@ -165,6 +201,37 @@ def main() -> None:
     print(f"UMAP n_neighbors:  {n_neighbors}")
     print(f"Total configs:     {n_configs}")
     print(f"Workers:           {n_workers}\n")
+    
+    manual_window = None
+    if args.manual_labels and args.npz:
+        print(f"Loading manual labels from {args.manual_labels}")
+        r = np.load(args.npz, allow_pickle=False)
+        start_secs = r["start_secs"]
+        hop_sec = float(np.median(np.diff(start_secs)))
+        window_sec = args.window_sec if args.window_sec else 2 * hop_sec
+        end_secs = start_secs + window_sec
+        n_windows = len(start_secs)
+        
+        manual = []
+        with open(args.manual_labels) as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                manual.append((float(row["Begin Time (s)"]), float(row["End Time (s)"]), row["Type"].strip()))
+                
+        unique_types = sorted(set(t for _, _, t in manual))
+        type_to_idx = {t: i for i, t in enumerate(unique_types)}
+        
+        manual_window = np.full(n_windows, -1, dtype=int)
+        for i in range(n_windows):
+            ws, we = start_secs[i], end_secs[i]
+            best_overlap = 0.0
+            best_type = -1
+            for begin, end, ltype in manual:
+                overlap = max(0.0, min(we, end) - max(ws, begin))
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_type = type_to_idx[ltype]
+            manual_window[i] = best_type
 
     header = [
         "umap_dims",
@@ -179,6 +246,10 @@ def main() -> None:
         "t_hdbscan_s",
     ]
     col_w = [9, 5, 10, 10, 8, 10, 7, 7, 10, 12]
+    
+    if manual_window is not None:
+        header.extend(["detsim", "nmi", "homog"])
+        col_w.extend([8, 8, 8])
 
     def fmt_row(row: dict) -> str:
         vals = [str(row[k]) for k in header]
@@ -202,7 +273,7 @@ def main() -> None:
         initargs = (shm.name, emb_shape, emb_dtype.str)
         with ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker, initargs=initargs) as executor:
             futures = {
-                executor.submit(run_one, dims, mcs, n_neighbors, args.epsilon, args.alpha): (dims, mcs) for dims in dims_list for mcs in mcs_list
+                executor.submit(run_one, dims, mcs, n_neighbors, args.epsilon, args.alpha, manual_window): (dims, mcs) for dims in dims_list for mcs in mcs_list
             }
             for f in as_completed(futures):
                 row = f.result()
