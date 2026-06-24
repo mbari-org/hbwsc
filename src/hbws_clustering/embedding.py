@@ -133,7 +133,9 @@ class PerchEmbedder:
 
   
 
-    model_url: str = PERCH_CPU
+    model_url: str = field(
+        default_factory=lambda: PERCH_GPU if tf.config.list_physical_devices("GPU") else PERCH_CPU
+    )
     pooling: str = "mean"
     batch_size: int = 64  # Increased from 16 for better CPU parallelism (note: I couldn't tell a difference)
 
