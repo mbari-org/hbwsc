@@ -110,7 +110,7 @@ def load_params(session_dir: Path) -> dict:
         params = yaml.safe_load(f)
     # Resolve relative paths against the session directory so that parameters.yml
     # is self-contained regardless of the working directory when just is invoked.
-    for key in ("score_file", "score_dir"):
+    for key in ("score_file", "score_dir", "manual_labels"):
         if key in params:
             params[key] = str((session_dir / params[key]).resolve())
     params["audio_files"] = [str((session_dir / p).resolve()) for p in params["audio_files"]]
