@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-06-25T00:20:07.877314+00:00",
+  "min_cluster_size": 200,
+  "n_clusters": 24,
+  "n_noise": 14644,
+  "clusters": {
+    "noise": 14644,
+    "cluster 0": 1265,
+    "cluster 1": 525,
+    "cluster 2": 4916,
+    "cluster 3": 271,
+    "cluster 4": 2189,
+    "cluster 5": 2913,
+    "cluster 6": 2424,
+    "cluster 7": 6191,
+    "cluster 8": 232,
+    "cluster 9": 1275,
+    "cluster 10": 3239,
+    "cluster 11": 602,
+    "cluster 12": 2322,
+    "cluster 13": 3956,
+    "cluster 14": 596,
+    "cluster 15": 964,
+    "cluster 16": 1526,
+    "cluster 17": 975,
+    "cluster 18": 779,
+    "cluster 19": 2239,
+    "cluster 20": 992,
+    "cluster 21": 5441,
+    "cluster 22": 3150,
+    "cluster 23": 2902
+  }
+}
