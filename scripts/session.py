@@ -335,6 +335,16 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
         child_params["hop_sec"] = hop_sec
         child_params["embedder_type"] = embedder_type
 
+        with open(session_dir / "parameters.yml") as f:
+            raw_params = yaml.safe_load(f)
+            
+        for key in ("score_file", "score_dir", "manual_labels"):
+            if key in child_params and child_params[key]:
+                # Prepend ../../ to account for the nested sweep_embed/<config>/ directory
+                child_params[key] = "../../" + raw_params[key]
+        if "audio_files" in child_params:
+            child_params["audio_files"] = ["../../" + p for p in raw_params["audio_files"]]
+
         child_yml = sweep_sesh_dir / "parameters.yml"
         with open(child_yml, "w") as f:
             yaml.dump(child_params, f, sort_keys=False)

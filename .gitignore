@@ -18,3 +18,8 @@ wheels/
 
 # Data
 /olive_songs
+/experiments/song_20161221_full_sweep_with_values
+/experiments/DEBUG_SWEEP_EXPERIMENT
+
+# Mac generated files
+*.DS_Store
