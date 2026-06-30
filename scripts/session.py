@@ -334,7 +334,7 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
         child_params["window_sec"] = window_sec
         child_params["hop_sec"] = hop_sec
         child_params["embedder_type"] = embedder_type
-
+        
         with open(session_dir / "parameters.yml") as f:
             raw_params = yaml.safe_load(f)
             
@@ -414,11 +414,17 @@ def cmd_inspect(session_dir: Path, params: dict, mcs_arg: str):
     run_cmd(["uv", "run", "python", "scripts/inspect_npz.py", str(npz)])
 
 
+def cmd_aggregate_sweep_embed(session_dir: Path):
+    sweep_out_dir = session_dir / "sweep_embed"
+    out_csv = sweep_out_dir / "combined_results.csv"
+    run_cmd(["uv", "run", "python", "scripts/aggregate_embed_sweep.py", str(session_dir), str(out_csv)])
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
-COMMANDS = {"init", "run", "sweep", "analyze", "inspect", "sweep-embed"}
+COMMANDS = {"init", "run", "sweep", "analyze", "inspect", "sweep-embed", "aggregate-sweep-embed"}
 
 if len(sys.argv) < 3 or sys.argv[2] not in COMMANDS:
     print(__doc__)
@@ -445,3 +451,5 @@ else:
         cmd_inspect(session_dir, params, extra)
     elif command == "sweep-embed":
         cmd_sweep_embed(session_dir, params)
+    elif command == "aggregate-sweep-embed":
+        cmd_aggregate_sweep_embed(session_dir)
