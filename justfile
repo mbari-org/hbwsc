@@ -104,9 +104,11 @@ run-inference src_dir targ_dir train_out="" pred_out="":
 browse_timeline npz segment_minutes='2':
     uv run python scripts/browse_timeline.py \
         {{ npz }} \
-        --audio MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav \
         --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
         --segment-minutes {{ segment_minutes }}
+
+# --audio MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav \
+
 
 browse_timeline_score0_5 segment_minutes='2':
     just browse_timeline \

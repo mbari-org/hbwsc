@@ -20,6 +20,8 @@ wheels/
 /olive_songs
 /experiments/song_20161221_full_sweep_with_values
 /experiments/DEBUG_SWEEP_EXPERIMENT
+# Can be changed later, experiment sweeps are large and take up space. 
+/experiments 
 
 # Mac generated files
 *.DS_Store

@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+import yaml
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -48,6 +49,7 @@ parser.add_argument("npz", type=Path)
 parser.add_argument("--segment-minutes", type=float, default=2.0)
 parser.add_argument("--audio", type=Path, default=None)
 parser.add_argument("--manual-labels", type=Path, default=None)
+parser.add_argument("--spectrogram-type", type=str, default="auto", choices=["auto", "default", "perch"], help="Spectrogram style")
 args = parser.parse_args()
 
 # ---------------------------------------------------------------------------
@@ -273,17 +275,84 @@ def draw(idx):
     s1 = int(t_max * 60 * sample_rate)
     chunk = audio[s0:s1]
 
-    nperseg = min(512, len(chunk))
-    freqs, times, Sxx = scipy_spectrogram(chunk, fs=sample_rate, nperseg=nperseg, noverlap=nperseg * 3 // 4)
-    Sxx_db = 10 * np.log10(Sxx + 1e-10)
+    spec_type = args.spectrogram_type
+    if spec_type == "auto":
+        spec_type = "perch" if "perch" in str(args.npz).lower() else "default"
 
-    ax_spec.cla()
-    ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto",
-                       cmap="Blues_r", rasterized=True)
+    if spec_type == "perch":
+        import librosa
+        target_sr = 32000
+        if sample_rate != target_sr:
+            spec_chunk = librosa.resample(chunk, orig_sr=sample_rate, target_sr=target_sr)
+        else:
+            spec_chunk = chunk
+            
+        n_fft = 1024
+        hop_length = 320
+        win_length = 640
+        
+        D = librosa.stft(
+            spec_chunk,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length,
+            center=False,
+            window='hann'
+        )
+        mag = np.abs(D)
+        
+        window = librosa.filters.get_window('hann', win_length)
+        scale = 1.0 / window.sum()
+        mag = mag * scale
+        
+        n_mels = 160
+        mel_basis = librosa.filters.mel(sr=target_sr, n_fft=n_fft, n_mels=n_mels, htk=True)
+        mel_spec = np.dot(mel_basis, mag)
+        
+        log_mel = np.log(np.maximum(mel_spec, 1e-5))
+        Sxx_db = log_mel * 0.1
+        
+        mel_freqs_hz = librosa.mel_frequencies(n_mels=n_mels, fmin=0, fmax=target_sr / 2, htk=True)
+        mel_bins = np.arange(n_mels)
+        times = librosa.frames_to_time(np.arange(Sxx_db.shape[1]), sr=target_sr, hop_length=hop_length)
+        
+        ax_spec.cla()
+        ax_spec.pcolormesh(times / 60 + t_min, mel_bins, Sxx_db, shading="auto",
+                           cmap="Blues_r", rasterized=True)
+        # Label y-axis ticks with actual Hz values at evenly-spaced mel bin positions
+        tick_bins = np.linspace(0, n_mels - 1, 8, dtype=int)
+        ax_spec.set_yticks(tick_bins)
+        ax_spec.set_yticklabels([f"{int(mel_freqs_hz[b])}" for b in tick_bins])
+        ax_spec.set_ylabel("Freq (Hz, Mel scale)")
+    else:
+        nperseg = min(512, len(chunk))
+        freqs, times, Sxx = scipy_spectrogram(chunk, fs=sample_rate, nperseg=nperseg, noverlap=nperseg * 3 // 4)
+        Sxx_db = 10 * np.log10(Sxx + 1e-10)
+    
+        ax_spec.cla()
+        ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto",
+                           cmap="Blues_r", rasterized=True)
+        ax_spec.set_ylabel("Freq (Hz)")
+
     ax_spec.set_xlim(t_min, t_max)
-    ax_spec.set_ylabel("Freq (Hz)")
     metrics = _segment_metrics(t_min, t_max)
-    title = f"{args.npz.parent.name}  [{fmt_hm(t_min)} – {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
+    
+    session_dir = args.npz.parent.parent
+    params = {}
+    try:
+        with open(session_dir / "parameters.yml") as f:
+            params = yaml.safe_load(f)
+    except Exception:
+        pass
+        
+    model = params.get("embedder_type", "unknown")
+    w_sec = params.get("window_sec", "?")
+    h_sec = params.get("hop_sec", "?")
+    eps = params.get("hdbscan_epsilon", 0.0)
+
+    title_prefix = f"{audio_path.name} | {model} | w:{w_sec}s h:{h_sec}s | eps:{eps} | {args.npz.parent.name}"
+    title = f"{title_prefix}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
+
     if metrics is not None:
         nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
         hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"

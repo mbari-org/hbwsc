@@ -287,6 +287,8 @@ def cmd_sweep(session_dir: Path, params: dict):
         str(params.get("sweep_mcs", "50,100,200")),
         "--neighbors",
         str(params.get("umap_neighbors", 15)),
+        "--epsilons",
+        str(params.get("sweep_epsilons", "0.0")),
         "--epsilon",
         str(eps),
         "--alpha",

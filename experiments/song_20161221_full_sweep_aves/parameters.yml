@@ -21,7 +21,7 @@ embedder_type: aves
 # window_sec: 0.5
 window_sec: 1
 hop_sec: 0.25
-sample_rate: 1600
+sample_rate: 16000
 
 # UMAP
 umap_components: 2           # for visualization (2-D scatter plot)
