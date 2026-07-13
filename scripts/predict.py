@@ -73,7 +73,7 @@ np.savez(
     labels=labels,
     embeddings=embeddings,
     start_secs=start_secs,
-    source_files=np.array([audio_files[0]] * len(windows))
+    source_files=np.array([Path(audio_files[0]).name] * len(windows))
 )
 
 print(f"Classifier output saved to {npz_out}.")

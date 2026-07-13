@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
 from pathlib import Path
@@ -179,7 +180,7 @@ def run(
             reduced_cluster=result.reduced_cluster,
             embeddings=result.embeddings,
             start_secs=np.array([w.start_sec for w in result.windows]),
-            source_files=np.array([str(w.source_file) for w in result.windows]),
+            source_files=np.array([os.path.relpath(w.source_file) for w in result.windows]),
         )
         typer.echo(f"\nResults saved to {output}")
 
