@@ -264,20 +264,36 @@ def main() -> None:
 
     rows = []
 
+    # Use GPU-accelerated UMAP if cuML is available
+    try:
+        from cuml.manifold import UMAP as cuUMAP
+        use_cuml = True
+        print("\n  Using cuML GPU UMAP")
+    except ImportError:
+        use_cuml = False
+        print("\n  cuML not found, using CPU UMAP (install cuml for GPU acceleration)")
+
     for umap_dims in dims_list:
-        # 1. Serial UMAP fit, one at a time because memory heavy
         print(
             f"\n  [UMAP] Fitting {umap_dims}-D reduction on "
             f"{embeddings.shape[0]} embeddings ...",
             end="", flush=True,
         )
         t0 = time.perf_counter()
-        reducer = umap_lib.UMAP(
-            n_components=umap_dims,
-            n_neighbors=n_neighbors,
-            metric="cosine",
-            random_state=42,
-        )
+        if use_cuml:
+            reducer = cuUMAP(
+                n_components=umap_dims,
+                n_neighbors=n_neighbors,
+                metric="cosine",
+                random_state=42,
+            )
+        else:
+            reducer = umap_lib.UMAP(
+                n_components=umap_dims,
+                n_neighbors=n_neighbors,
+                metric="cosine",
+                random_state=42,
+            )
         reduced = reducer.fit_transform(embeddings)
         t_umap = time.perf_counter() - t0
         print(f" done ({t_umap:.1f}s)")
