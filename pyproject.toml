@@ -23,7 +23,6 @@ dependencies = [
     "typer>=0.9",
     "umap-learn>=0.5.11",
     "nvidia-cudnn-cu13==9.19.0.56 ; sys_platform == 'linux'",
-    "cuml-cu12 ; sys_platform == 'linux'",
 ]
 
 [project.scripts]
@@ -51,11 +50,3 @@ select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-
-[[tool.uv.index]]
-name = "nvidia"
-url = "https://pypi.nvidia.com"
-explicit = true
-
-[tool.uv.sources]
-cuml-cu12 = { index = "nvidia" }
