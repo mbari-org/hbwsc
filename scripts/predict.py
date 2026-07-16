@@ -51,15 +51,30 @@ windower = AudioWindower(
         hop_sec=params['hop_sec']
     )
 
-windows = windower.window_file(audio_files[0]) # Just do first file for now, I'll deal with multi file later
+windows = []
+for af in audio_files:
+    windows.extend(windower.window_file(af))
+
 if not windows:
-        print("No windows extracted from audio file.")
-        sys.exit(1)
+    print("No windows extracted from audio files.")
+    sys.exit(1)
 
 # --- embed and classify ---------------------------------------------------------------------
 
-embedder = PerchEmbedder(batch_size=64)
-embeddings = embedder.embed_windows(windows)
+embeddings_file = parameters_path.parent / "embeddings.npy"
+embeddings = None
+if embeddings_file.exists():
+    print(f"Loading existing embeddings from {embeddings_file}...")
+    loaded_emb = np.load(embeddings_file)
+    if len(loaded_emb) == len(windows):
+        embeddings = loaded_emb
+    else:
+        print(f"WARNING: existing embeddings shape {loaded_emb.shape} does not match extracted windows ({len(windows)}). Re-embedding...")
+
+if embeddings is None:
+    print("Computing embeddings...")
+    embedder = PerchEmbedder(batch_size=64)
+    embeddings = embedder.embed_windows(windows)
 labels = model.predict(embeddings)
 
 # --- save output ---------------------------------------------------------------------
@@ -73,7 +88,7 @@ np.savez(
     labels=labels,
     embeddings=embeddings,
     start_secs=start_secs,
-    source_files=np.array([Path(audio_files[0]).name] * len(windows))
+    source_files=np.array([w.source_file.name for w in windows])
 )
 
 print(f"Classifier output saved to {npz_out}.")

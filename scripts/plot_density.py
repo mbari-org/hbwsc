@@ -31,7 +31,7 @@ if not args:
     print(__doc__)
     sys.exit(1)
 
-window_sec = 5.0
+window_sec = 60.0
 if "--window-sec" in args:
     idx = args.index("--window-sec")
     window_sec = float(args[idx + 1])

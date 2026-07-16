@@ -50,6 +50,10 @@ parser.add_argument("--segment-minutes", type=float, default=2.0)
 parser.add_argument("--audio", type=Path, default=None)
 parser.add_argument("--manual-labels", type=Path, default=None)
 parser.add_argument("--spectrogram-type", type=str, default="auto", choices=["auto", "default", "perch"], help="Spectrogram style")
+parser.add_argument("--density-window-sec", type=float, default=5.0, help="Window size for density calculation")
+parser.add_argument("--file-index", type=int, default=0, help="Index of the audio file to browse (default 0)")
+parser.add_argument("--export-pdf", type=Path, default=None, nargs="?", const=True,
+                    help="Export all segments to a PDF and exit. Optionally provide output path.")
 args = parser.parse_args()
 
 # ---------------------------------------------------------------------------
@@ -57,8 +61,26 @@ args = parser.parse_args()
 # ---------------------------------------------------------------------------
 
 r = np.load(args.npz, allow_pickle=False)
-labels = r["labels"]
-start_secs = r["start_secs"]
+source_files_array = r["source_files"].astype(str)
+
+unique_files = []
+for f in source_files_array:
+    if f not in unique_files:
+        unique_files.append(f)
+
+if args.file_index >= len(unique_files):
+    print(f"ERROR: --file-index {args.file_index} is out of bounds. The npz contains {len(unique_files)} files.")
+    sys.exit(1)
+
+selected_file_str = unique_files[args.file_index]
+file_mask = source_files_array == selected_file_str
+
+labels = r["labels"][file_mask]
+start_secs = r["start_secs"][file_mask]
+
+print(f"\n--- Browsing file {args.file_index + 1}/{len(unique_files)} ---")
+print(f"File: {selected_file_str}")
+print(f"Windows in this file: {len(labels)}\n")
 
 unique_labels = sorted(np.unique(labels).tolist())
 cluster_labels = [lbl for lbl in unique_labels if lbl >= 0]
@@ -71,8 +93,8 @@ colours[-1] = (0.75, 0.75, 0.75, 0.4)
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0
 x_minutes = start_secs / 60.0
 
-# --- Density data (5-second bins) ------------------------------------------
-window_min = 5.0 / 60.0
+# --- Density data (5-second bins by default) -------------------------------
+window_min = args.density_window_sec / 60.0
 dens_bins = np.arange(x_minutes.min(), x_minutes.max() + window_min, window_min)
 dens_centers = dens_bins[:-1] + window_min / 2.0
 dens_counts = {lbl: np.zeros(len(dens_bins) - 1) for lbl in unique_labels}
@@ -119,12 +141,11 @@ if args.manual_labels:
 if args.audio:
     audio_path = args.audio
 else:
-    source_files = r["source_files"].astype(str).tolist()
-    audio_path = Path(source_files[0])
+    audio_path = Path(selected_file_str)
     if not audio_path.exists():
         audio_path = args.npz.parent.parent.parent / audio_path.name
     if not audio_path.exists():
-        print(f"ERROR: audio file not found: {source_files[0]}")
+        print(f"ERROR: audio file not found: {selected_file_str}")
         print("Use --audio to specify the WAV file.")
         sys.exit(1)
 
@@ -133,6 +154,24 @@ audio, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=False)
 if audio.ndim > 1:
     audio = audio.mean(axis=1)
 print(f"Audio: {len(audio) / sample_rate:.1f}s  @{sample_rate}Hz")
+
+# ---------------------------------------------------------------------------
+# Session params & spectrogram type
+# ---------------------------------------------------------------------------
+
+session_dir = args.npz.parent.parent
+params = {}
+try:
+    with open(session_dir / "parameters.yml") as f:
+        params = yaml.safe_load(f)
+except Exception:
+    pass
+
+model = params.get("embedder_type", "unknown")
+
+spec_type = args.spectrogram_type
+if spec_type == "auto":
+    spec_type = "perch" if "perch" in str(args.npz).lower() or model == "perch" else "default"
 
 # ---------------------------------------------------------------------------
 # Segment state
@@ -160,11 +199,11 @@ manual_window = np.full(len(labels), -1, dtype=int)
 unique_types_idx: dict[str, int] = {}
 if manual_labels:
     unique_types_idx = {t: i for i, t in enumerate(sorted(set(t for _, _, t in manual_labels)))}
-    end_secs = r["start_secs"] + 0.5  # window_sec
+    end_secs = start_secs + 0.5  # window_sec
     best_overlap = np.zeros(len(labels), dtype=float)
     for begin_min, end_min, ltype in manual_labels:
         b, e = begin_min * 60, end_min * 60
-        overlap = np.minimum(end_secs, e) - np.maximum(r["start_secs"], b)
+        overlap = np.minimum(end_secs, e) - np.maximum(start_secs, b)
         np.clip(overlap, 0.0, None, out=overlap)
         better = overlap > best_overlap
         best_overlap = np.where(better, overlap, best_overlap)
@@ -192,6 +231,13 @@ def _segment_metrics(t_min: float, t_max: float) -> dict | None:
     homog = homogeneity_score(seg_manual, seg_labels)
     return {"detsim": detsim, "nmi": nmi, "homog": homog}
 
+overall_metrics = _segment_metrics(0, total_minutes)
+if overall_metrics is not None:
+    o_nmi = "—" if np.isnan(overall_metrics["nmi"]) else f"{overall_metrics['nmi']:.2f}"
+    o_hom = "—" if np.isnan(overall_metrics["homog"]) else f"{overall_metrics['homog']:.2f}"
+    overall_metrics_str = f" | TOTAL DetSim:{overall_metrics['detsim']:.2f} NMI:{o_nmi} Homog:{o_hom}"
+else:
+    overall_metrics_str = ""
 
 # Precompute per-segment metrics for the "best" buttons
 seg_detsim = np.zeros(n_segments)
@@ -215,49 +261,7 @@ best_seg_nmi    = int(np.argmax(seg_nmi))
 best_seg_homog  = int(np.argmax(seg_homog))
 
 # ---------------------------------------------------------------------------
-# Figure layout  (add manual strip if labels provided)
-# ---------------------------------------------------------------------------
-
-fig = plt.figure(figsize=(20, 10 if manual_labels else 8))
-
-if manual_labels:
-    ax_spec = fig.add_axes([0.05, 0.44, 0.93, 0.45])
-    ax_time = fig.add_axes([0.05, 0.34, 0.93, 0.08])
-    ax_manu = fig.add_axes([0.05, 0.24, 0.93, 0.08])
-    ax_dens = fig.add_axes([0.05, 0.14, 0.93, 0.08])
-else:
-    ax_spec = fig.add_axes([0.05, 0.38, 0.93, 0.54])
-    ax_time = fig.add_axes([0.05, 0.26, 0.93, 0.10])
-    ax_dens = fig.add_axes([0.05, 0.14, 0.93, 0.10])
-    ax_manu = None
-
-bw = 0.05  # button width
-ax_first  = fig.add_axes([0.06, 0.02, bw, 0.07])
-ax_prev   = fig.add_axes([0.12, 0.02, bw, 0.07])
-ax_next   = fig.add_axes([0.18, 0.02, bw, 0.07])
-ax_last   = fig.add_axes([0.24, 0.02, bw, 0.07])
-ax_play   = fig.add_axes([0.40, 0.02, bw, 0.07])
-ax_rewind = fig.add_axes([0.46, 0.02, bw, 0.07])
-ax_best_d = fig.add_axes([0.55, 0.02, bw, 0.07])
-
-btn_first  = mwidgets.Button(ax_first,  "|◀ First")
-btn_prev   = mwidgets.Button(ax_prev,   "◀  Prev")
-btn_next   = mwidgets.Button(ax_next,   "Next  ▶")
-btn_last   = mwidgets.Button(ax_last,   "Last ▶|")
-btn_play   = mwidgets.Button(ax_play,   "▶  Play")
-btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
-btn_best_d = mwidgets.Button(ax_best_d, "★ DetSim")
-
-# NMI / Homogeneity best-segment buttons only when manual labels are loaded.
-btn_best_n = btn_best_h = None
-if manual_labels:
-    ax_best_n = fig.add_axes([0.61, 0.02, bw, 0.07])
-    ax_best_h = fig.add_axes([0.67, 0.02, bw, 0.07])
-    btn_best_n = mwidgets.Button(ax_best_n, "★ NMI")
-    btn_best_h = mwidgets.Button(ax_best_h, "★ Homog")
-
-# ---------------------------------------------------------------------------
-# Draw helpers
+# Shared rendering function
 # ---------------------------------------------------------------------------
 
 def fmt_hm(minutes):
@@ -266,7 +270,8 @@ def fmt_hm(minutes):
     return f"{h}:{m:02d}:{s:02d}"
 
 
-def draw(idx):
+def render_segment(idx, ax_spec, ax_time, ax_dens, ax_manu):
+    """Render segment *idx* onto the given axes (clears them first)."""
     t_min = idx * seg_minutes
     t_max = min(t_min + seg_minutes, total_minutes)
 
@@ -275,22 +280,29 @@ def draw(idx):
     s1 = int(t_max * 60 * sample_rate)
     chunk = audio[s0:s1]
 
-    spec_type = args.spectrogram_type
-    if spec_type == "auto":
-        spec_type = "perch" if "perch" in str(args.npz).lower() else "default"
-
     if spec_type == "perch":
         import librosa
         target_sr = 32000
         if sample_rate != target_sr:
             spec_chunk = librosa.resample(chunk, orig_sr=sample_rate, target_sr=target_sr)
         else:
-            spec_chunk = chunk
-            
+            spec_chunk = chunk.copy()
+
+        # Peak-normalize each 5-second window to 0.25 (as Perch does internally)
+        window_size = 5 * target_sr
+        for i in range(0, len(spec_chunk), window_size):
+            chunk_slice = spec_chunk[i:i + window_size]
+            peak = np.abs(chunk_slice).max()
+            if peak > 1e-8:
+                spec_chunk[i:i + window_size] = chunk_slice * (0.25 / peak)
+
+        # Front pad 160 samples for exact frame origin alignment
+        spec_chunk = np.pad(spec_chunk, (160, 0), mode='constant')
+
         n_fft = 1024
         hop_length = 320
         win_length = 640
-        
+
         D = librosa.stft(
             spec_chunk,
             n_fft=n_fft,
@@ -300,22 +312,27 @@ def draw(idx):
             window='hann'
         )
         mag = np.abs(D)
-        
+
         window = librosa.filters.get_window('hann', win_length)
         scale = 1.0 / window.sum()
         mag = mag * scale
-        
-        n_mels = 160
-        mel_basis = librosa.filters.mel(sr=target_sr, n_fft=n_fft, n_mels=n_mels, htk=True)
+
+        n_mels = 128
+        fmin = 60
+        fmax = 16000
+        mel_basis = librosa.filters.mel(sr=target_sr, n_fft=n_fft, n_mels=n_mels, fmin=fmin, fmax=fmax, htk=True)
         mel_spec = np.dot(mel_basis, mag)
-        
+
+        # DC bin zeroed: Bin 0 set to 0 after filterbank
+        mel_spec[0, :] = 0.0
+
         log_mel = np.log(np.maximum(mel_spec, 1e-5))
         Sxx_db = log_mel * 0.1
-        
-        mel_freqs_hz = librosa.mel_frequencies(n_mels=n_mels, fmin=0, fmax=target_sr / 2, htk=True)
+
+        mel_freqs_hz = librosa.mel_frequencies(n_mels=n_mels, fmin=fmin, fmax=fmax, htk=True)
         mel_bins = np.arange(n_mels)
         times = librosa.frames_to_time(np.arange(Sxx_db.shape[1]), sr=target_sr, hop_length=hop_length)
-        
+
         ax_spec.cla()
         ax_spec.pcolormesh(times / 60 + t_min, mel_bins, Sxx_db, shading="auto",
                            cmap="Blues_r", rasterized=True)
@@ -328,7 +345,7 @@ def draw(idx):
         nperseg = min(512, len(chunk))
         freqs, times, Sxx = scipy_spectrogram(chunk, fs=sample_rate, nperseg=nperseg, noverlap=nperseg * 3 // 4)
         Sxx_db = 10 * np.log10(Sxx + 1e-10)
-    
+
         ax_spec.cla()
         ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto",
                            cmap="Blues_r", rasterized=True)
@@ -336,28 +353,19 @@ def draw(idx):
 
     ax_spec.set_xlim(t_min, t_max)
     metrics = _segment_metrics(t_min, t_max)
-    
-    session_dir = args.npz.parent.parent
-    params = {}
-    try:
-        with open(session_dir / "parameters.yml") as f:
-            params = yaml.safe_load(f)
-    except Exception:
-        pass
-        
-    model = params.get("embedder_type", "unknown")
+
     w_sec = params.get("window_sec", "?")
     h_sec = params.get("hop_sec", "?")
     eps = params.get("hdbscan_epsilon", 0.0)
 
-    title_prefix = f"{audio_path.name} | {model} | w:{w_sec}s h:{h_sec}s | eps:{eps} | {args.npz.parent.name}"
+    title_prefix = f"{audio_path.name} | {model} | w:{w_sec}s h:{h_sec}s | eps:{eps} | {args.npz.parent.name}{overall_metrics_str}"
     title = f"{title_prefix}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
 
     if metrics is not None:
         nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
         hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
-        title += f"   DetSim: {metrics['detsim']:.2f}   NMI: {nmi}   Homog: {hom}"
-    ax_spec.set_title(title)
+        title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} NMI:{nmi} Homog:{hom})"
+    ax_spec.set_title(title, fontsize=9)
     ax_spec.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
     ax_spec.tick_params(labelbottom=False)
 
@@ -394,7 +402,7 @@ def draw(idx):
     ax_dens.set_ylim(0, 1.0)
     ax_dens.set_yticks([])
     ax_dens.set_ylabel("density", fontsize=7)
-    
+
     ax_dens.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
     ax_dens.tick_params(labelbottom=True)
     ax_dens.set_xlabel("Time (h:mm:ss)")
@@ -432,11 +440,88 @@ def draw(idx):
             ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
                            ncol=min(len(manual_colours), 15), fontsize=7, framealpha=0.8, borderaxespad=0)
 
+
+# export as a pdf
+if args.export_pdf is not None:
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    if args.export_pdf is True:
+        pdf_path = args.npz.with_name(args.npz.stem + "_timeline.pdf")
+    else:
+        pdf_path = args.export_pdf
+
+    print(f"Exporting {n_segments} segments to {pdf_path} ...")
+
+    with PdfPages(str(pdf_path)) as pdf:
+        for si in range(n_segments):
+            has_manual = manual_labels is not None
+            fig_exp, axes = plt.subplots(
+                nrows=3 + int(has_manual), ncols=1,
+                figsize=(20, 6 if has_manual else 5),
+                gridspec_kw={"height_ratios": [5, 1, 1] + ([1] if has_manual else [])},
+                sharex=True,
+            )
+            render_segment(si, axes[0], axes[1], axes[2],
+                           axes[3] if has_manual else None)
+            fig_exp.subplots_adjust(left=0.04, right=0.98, top=0.92, bottom=0.08, hspace=0.15)
+            pdf.savefig(fig_exp, dpi=150)
+            plt.close(fig_exp)
+            print(f"  segment {si + 1}/{n_segments}", end="\r")
+
+    print(f"\nDone! Saved to {pdf_path}")
+    sys.exit(0)
+
+# create the figure
+fig = plt.figure(figsize=(20, 10 if manual_labels else 8))
+
+if manual_labels:
+    ax_spec = fig.add_axes([0.05, 0.44, 0.93, 0.45])
+    ax_time = fig.add_axes([0.05, 0.34, 0.93, 0.08])
+    ax_manu = fig.add_axes([0.05, 0.24, 0.93, 0.08])
+    ax_dens = fig.add_axes([0.05, 0.14, 0.93, 0.08])
+else:
+    ax_spec = fig.add_axes([0.05, 0.38, 0.93, 0.54])
+    ax_time = fig.add_axes([0.05, 0.26, 0.93, 0.10])
+    ax_dens = fig.add_axes([0.05, 0.14, 0.93, 0.10])
+    ax_manu = None
+
+bw = 0.05  # button width
+ax_first  = fig.add_axes([0.06, 0.02, bw, 0.07])
+ax_prev   = fig.add_axes([0.12, 0.02, bw, 0.07])
+ax_next   = fig.add_axes([0.18, 0.02, bw, 0.07])
+ax_last   = fig.add_axes([0.24, 0.02, bw, 0.07])
+ax_play   = fig.add_axes([0.40, 0.02, bw, 0.07])
+ax_rewind = fig.add_axes([0.46, 0.02, bw, 0.07])
+ax_best_d = fig.add_axes([0.55, 0.02, bw, 0.07])
+
+btn_first  = mwidgets.Button(ax_first,  "|◀ First")
+btn_prev   = mwidgets.Button(ax_prev,   "◀  Prev")
+btn_next   = mwidgets.Button(ax_next,   "Next  ▶")
+btn_last   = mwidgets.Button(ax_last,   "Last ▶|")
+btn_play   = mwidgets.Button(ax_play,   "▶  Play")
+btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
+btn_best_d = mwidgets.Button(ax_best_d, "★ DetSim")
+
+# NMI / Homogeneity best-segment buttons only when manual labels are loaded
+btn_best_n = btn_best_h = None
+if manual_labels:
+    ax_best_n = fig.add_axes([0.61, 0.02, bw, 0.07])
+    ax_best_h = fig.add_axes([0.67, 0.02, bw, 0.07])
+    btn_best_n = mwidgets.Button(ax_best_n, "★ NMI")
+    btn_best_h = mwidgets.Button(ax_best_h, "★ Homog")
+
+# interactive wrapper
+def draw(idx):
+    render_segment(idx, ax_spec, ax_time, ax_dens, ax_manu)
+
     # Full synchronous draw, then snapshot background (vline excluded via animated=True)
     fig.canvas.draw()
     _bg[0] = fig.canvas.copy_from_bbox(fig.bbox)
 
     # Recreate animated playhead (not drawn during normal renders)
+    t_min = idx * seg_minutes
     vline[0] = ax_spec.axvline(x=t_min, color="white", linewidth=1.2,
                                 alpha=0.85, animated=True, zorder=10)
 

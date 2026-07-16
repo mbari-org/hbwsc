@@ -101,11 +101,36 @@ run-inference src_dir targ_dir train_out="" pred_out="":
 
 ###########################
 
-browse_timeline npz segment_minutes='2':
+browse_timeline npz segment_minutes='2' density_window='5' file_index='0':
     uv run python scripts/browse_timeline.py \
         {{ npz }} \
         --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
-        --segment-minutes {{ segment_minutes }}
+        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }}
+
+browse_timeline_audio npz segment_minutes='2' density_window='5' file_index='0' audio='':
+    uv run python scripts/browse_timeline.py \
+        {{ npz }} \
+        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
+        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --audio {{ audio }}
+
+export_timeline npz segment_minutes='2' density_window='5' file_index='0' file_name='' :
+    uv run python scripts/browse_timeline.py \
+        {{ npz }} \
+        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
+        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }} \
+
+export_timeline_audio npz segment_minutes='2' density_window='5' file_index='0' audio= '' file_name='' :
+    uv run python scripts/browse_timeline.py \
+        {{ npz }} \
+        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
+        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }} \
+        --audio {{ audio }}
+
+export_timeline_nolabel npz segment_minutes='2' density_window='5' file_index='0' file_name='' :
+    uv run python scripts/browse_timeline.py \
+        {{ npz }} \
+        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
+        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }}
 
 # --audio MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav \
 

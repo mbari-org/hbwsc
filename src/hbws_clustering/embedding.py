@@ -176,6 +176,12 @@ class PerchEmbedder:
             # Truncate to exactly target_len
             waveforms = waveforms[:, :target_len]
 
+        # Apply peak normalization to 0.25 per window as per Perch 2.0 spec
+        for i in range(len(waveforms)):
+            peak = np.abs(waveforms[i]).max()
+            if peak > 1e-8:
+                waveforms[i] = waveforms[i] * (0.25 / peak)
+
         model_outputs = self._model.signatures['serving_default'](inputs=waveforms)
 
         # "embedding" key gives the actual perch embeddings
