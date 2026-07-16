@@ -57,9 +57,9 @@ def main():
         
     combined_df = pd.concat(all_dfs, ignore_index=True)
     
-    # Sort by the mean of detsim,nmi,homog?
+    # Sort by the mean of detsim,nmi,ari,homog?
     sort_cols = []
-    for col in ["detsim", "nmi", "homog"]:
+    for col in ["detsim", "nmi", "ari", "homog"]:
         if col in combined_df.columns:
             sort_cols.append(col)
     

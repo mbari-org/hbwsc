@@ -69,7 +69,7 @@ from pathlib import Path
 import hdbscan
 import numpy as np
 import umap as umap_lib
-from sklearn.metrics import normalized_mutual_info_score, homogeneity_completeness_v_measure
+from sklearn.metrics import normalized_mutual_info_score, homogeneity_completeness_v_measure, adjusted_rand_score
 
 # Worker receives shared-memory metadata for the UMAP-reduced array.
 _shm_name: str | None = None
@@ -135,14 +135,17 @@ def run_hdbscan(umap_dims: int, mcs: int, eps: float, alpha: float,
         m_in = manual_window[in_both]
         if len(m_in) > 0:
             nmi = float(normalized_mutual_info_score(m_in, c_in))
+            ari = float(adjusted_rand_score(m_in, c_in))
             v_hom, _, _ = homogeneity_completeness_v_measure(m_in, c_in)
             v_hom = float(v_hom)
         else:
             nmi = 0.0
+            ari = 0.0
             v_hom = 0.0
     else:
         jaccard = float("nan")
         nmi = float("nan")
+        ari = float("nan")
         v_hom = float("nan")
 
     shm.close()
@@ -164,6 +167,7 @@ def run_hdbscan(umap_dims: int, mcs: int, eps: float, alpha: float,
     if manual_window is not None:
         ret["detsim"] = round(jaccard, 4)
         ret["nmi"] = round(nmi, 4)
+        ret["ari"] = round(ari, 4)
         ret["homog"] = round(v_hom, 4)
 
     return ret
@@ -252,8 +256,8 @@ def main() -> None:
     col_w = [9, 5, 5, 10, 10, 8, 10, 7, 7, 10, 12]
 
     if manual_window is not None:
-        header.extend(["detsim", "nmi", "homog"])
-        col_w.extend([8, 8, 8])
+        header.extend(["detsim", "nmi", "ari", "homog"])
+        col_w.extend([8, 8, 8, 8])
 
     def fmt_row(row: dict) -> str:
         vals = [str(row[k]) for k in header]

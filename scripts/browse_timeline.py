@@ -34,7 +34,7 @@ import matplotlib.widgets as mwidgets
 import numpy as np
 import soundfile as sf
 from scipy.signal import spectrogram as scipy_spectrogram
-from sklearn.metrics import normalized_mutual_info_score, homogeneity_score
+from sklearn.metrics import normalized_mutual_info_score, homogeneity_score, adjusted_rand_score
 
 _IS_MACOS = platform.system() == "Darwin"
 if not _IS_MACOS:
@@ -224,24 +224,27 @@ def _segment_metrics(t_min: float, t_max: float) -> dict | None:
     union = c | m
     detsim = inter.sum() / union.sum() if union.any() else 0.0
     if inter.sum() < 2:
-        return {"detsim": detsim, "nmi": float("nan"), "homog": float("nan")}
+        return {"detsim": detsim, "nmi": float("nan"), "ari": float("nan"), "homog": float("nan")}
     seg_labels = labels[mask][inter]
     seg_manual = manual_window[mask][inter]
     nmi = normalized_mutual_info_score(seg_manual, seg_labels)
+    ari = adjusted_rand_score(seg_manual, seg_labels)
     homog = homogeneity_score(seg_manual, seg_labels)
-    return {"detsim": detsim, "nmi": nmi, "homog": homog}
+    return {"detsim": detsim, "nmi": nmi, "ari": ari, "homog": homog}
 
 overall_metrics = _segment_metrics(0, total_minutes)
 if overall_metrics is not None:
     o_nmi = "—" if np.isnan(overall_metrics["nmi"]) else f"{overall_metrics['nmi']:.2f}"
+    o_ari = "—" if np.isnan(overall_metrics["ari"]) else f"{overall_metrics['ari']:.2f}"
     o_hom = "—" if np.isnan(overall_metrics["homog"]) else f"{overall_metrics['homog']:.2f}"
-    overall_metrics_str = f" | TOTAL DetSim:{overall_metrics['detsim']:.2f} NMI:{o_nmi} Homog:{o_hom}"
+    overall_metrics_str = f" | TOTAL DetSim:{overall_metrics['detsim']:.2f} NMI:{o_nmi} ARI:{o_ari} Homog:{o_hom}"
 else:
     overall_metrics_str = ""
 
 # Precompute per-segment metrics for the "best" buttons
 seg_detsim = np.zeros(n_segments)
 seg_nmi    = np.zeros(n_segments)
+seg_ari    = np.zeros(n_segments)
 seg_homog  = np.zeros(n_segments)
 for i in range(n_segments):
     t_min = i * seg_minutes
@@ -255,9 +258,11 @@ for i in range(n_segments):
     else:
         seg_detsim[i] = metr["detsim"]
         seg_nmi[i]    = 0.0 if np.isnan(metr["nmi"])   else metr["nmi"]
+        seg_ari[i]    = 0.0 if np.isnan(metr["ari"])   else metr["ari"]
         seg_homog[i]  = 0.0 if np.isnan(metr["homog"]) else metr["homog"]
 best_seg_detsim = int(np.argmax(seg_detsim))
 best_seg_nmi    = int(np.argmax(seg_nmi))
+best_seg_ari    = int(np.argmax(seg_ari))
 best_seg_homog  = int(np.argmax(seg_homog))
 
 # ---------------------------------------------------------------------------
@@ -363,8 +368,9 @@ def render_segment(idx, ax_spec, ax_time, ax_dens, ax_manu):
 
     if metrics is not None:
         nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
+        ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
         hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
-        title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} NMI:{nmi} Homog:{hom})"
+        title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} NMI:{nmi} ARI:{ari} Homog:{hom})"
     ax_spec.set_title(title, fontsize=9)
     ax_spec.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
     ax_spec.tick_params(labelbottom=False)
@@ -504,12 +510,14 @@ btn_play   = mwidgets.Button(ax_play,   "▶  Play")
 btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
 btn_best_d = mwidgets.Button(ax_best_d, "★ DetSim")
 
-# NMI / Homogeneity best-segment buttons only when manual labels are loaded
-btn_best_n = btn_best_h = None
+# NMI / ARI / Homogeneity best-segment buttons only when manual labels are loaded
+btn_best_n = btn_best_a = btn_best_h = None
 if manual_labels:
     ax_best_n = fig.add_axes([0.61, 0.02, bw, 0.07])
-    ax_best_h = fig.add_axes([0.67, 0.02, bw, 0.07])
+    ax_best_a = fig.add_axes([0.67, 0.02, bw, 0.07])
+    ax_best_h = fig.add_axes([0.73, 0.02, bw, 0.07])
     btn_best_n = mwidgets.Button(ax_best_n, "★ NMI")
+    btn_best_a = mwidgets.Button(ax_best_a, "★ ARI")
     btn_best_h = mwidgets.Button(ax_best_h, "★ Homog")
 
 # interactive wrapper
@@ -605,6 +613,12 @@ def on_best_nmi(_event):
     draw(seg_idx[0])
 
 
+def on_best_ari(_event):
+    stop_playback()
+    seg_idx[0] = best_seg_ari
+    draw(seg_idx[0])
+
+
 def on_best_homog(_event):
     stop_playback()
     seg_idx[0] = best_seg_homog
@@ -674,6 +688,8 @@ def on_key(event):
         on_best_detsim(None)
     elif event.key == "n" and manual_labels:
         on_best_nmi(None)
+    elif event.key == "a" and manual_labels:
+        on_best_ari(None)
     elif event.key == "m" and manual_labels:
         on_best_homog(None)
     elif event.key == "r":
@@ -689,6 +705,8 @@ btn_rewind.on_clicked(on_rewind)
 btn_best_d.on_clicked(on_best_detsim)
 if btn_best_n is not None:
     btn_best_n.on_clicked(on_best_nmi)
+if btn_best_a is not None:
+    btn_best_a.on_clicked(on_best_ari)
 if btn_best_h is not None:
     btn_best_h.on_clicked(on_best_homog)
 fig.canvas.mpl_connect("key_press_event", on_key)

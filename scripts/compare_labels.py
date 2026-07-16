@@ -31,7 +31,7 @@ import csv
 from pathlib import Path
 
 import numpy as np
-from sklearn.metrics import normalized_mutual_info_score, v_measure_score
+from sklearn.metrics import normalized_mutual_info_score, v_measure_score, adjusted_rand_score
 
 # ---------------------------------------------------------------------------
 # Args
@@ -191,15 +191,17 @@ for mi, t in enumerate(unique_types):
 print()
 
 # ---------------------------------------------------------------------------
-# NMI and V-measure
+# NMI, ARI, and V-measure
 # ---------------------------------------------------------------------------
 
 from sklearn.metrics import homogeneity_completeness_v_measure
 nmi = normalized_mutual_info_score(m_in, c_in)
+ari = adjusted_rand_score(m_in, c_in)
 v_hom, v_comp, v_meas = homogeneity_completeness_v_measure(m_in, c_in)
 
 print("=== Information-theoretic metrics (intersection windows) ===")
 print(f"  NMI (normalized mutual info):  {nmi:.4f}")
+print(f"  ARI (adjusted rand index):     {ari:.4f}")
 print(f"  Homogeneity  (cluster -> label): {v_hom:.4f}")
 print(f"  Completeness (label -> cluster): {v_comp:.4f}")
 print(f"  V-measure:                       {v_meas:.4f}")
