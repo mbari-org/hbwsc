@@ -129,6 +129,10 @@ class PerchEmbedder:
         ``"mean"`` (default) averages over time; ``"max"`` takes the maximum.
     batch_size:
         Number of windows processed per forward pass.
+    padding:
+        How to pad windows shorter than 5 seconds to reach the required
+        160,000 samples.  ``"repeat"`` (default) tiles the audio;
+        ``"zero"`` pads with zeros.
     """
 
   
@@ -138,8 +142,15 @@ class PerchEmbedder:
     )
     pooling: str = "mean"
     batch_size: int = 64  # Increased from 16 for better CPU parallelism (note: I couldn't tell a difference)
+    padding: str = "repeat"
 
     _model: any = field(init=False, repr=False, default=None)
+
+    def __post_init__(self) -> None:
+        if self.padding not in ("repeat", "zero"):
+            raise ValueError(
+                f"Unknown padding mode: {self.padding!r}. Use 'repeat' or 'zero'."
+            )
 
     def _load(self) -> None:
         if self._model is not None:
@@ -165,16 +176,19 @@ class PerchEmbedder:
         waveforms = np.stack([w.audio for w in batch]).astype(np.float32)
 
         # Perch expects exactly 160,000 samples (5.0 seconds at 32kHz)
-        # Tile short window until 5 seconds
         target_len = 160000
         current_len = waveforms.shape[1]
         if current_len < target_len:
-            # Calculate how many times we need to repeat to reach or exceed target_len
-            reps = int(np.ceil(target_len / current_len))
-            # Tile along the time axis (axis 1)
-            waveforms = np.tile(waveforms, (1, reps))
-            # Truncate to exactly target_len
-            waveforms = waveforms[:, :target_len]
+            if self.padding == "repeat":
+                # Tile the audio to reach or exceed target_len, then truncate
+                reps = int(np.ceil(target_len / current_len))
+                waveforms = np.tile(waveforms, (1, reps))
+                waveforms = waveforms[:, :target_len]
+            else:  # "zero"
+                pad_len = target_len - current_len
+                waveforms = np.pad(
+                    waveforms, ((0, 0), (0, pad_len)), mode="constant", constant_values=0.0
+                )
 
         # Apply peak normalization to 0.25 per window as per Perch 2.0 spec
         for i in range(len(waveforms)):

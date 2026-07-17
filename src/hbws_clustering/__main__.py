@@ -22,6 +22,11 @@ class EmbedderType(str, Enum):
     perch = "perch"
 
 
+class PaddingType(str, Enum):
+    repeat = "repeat"
+    zero = "zero"
+
+
 def _score_path(audio_path: Path, score_dir: Path) -> Path:
     """Derive the score .npy path from a WAV filename and score base directory.
 
@@ -69,6 +74,7 @@ def run(
     hop_sec: Optional[float] = typer.Option(None, help="Window hop in seconds (default = window_sec)."),
     sample_rate: int = typer.Option(16_000, help="Target sample rate for resampling."),
     embedder_type: EmbedderType = typer.Option(EmbedderType.aves, help="Type of embedder to use ('aves' or 'perch')."),
+    perch_padding: PaddingType = typer.Option(PaddingType.repeat, "--perch-padding", help="Perch padding mode: 'repeat' (tile audio) or 'zero' (zero-fill)."),
     model: Optional[str] = typer.Option(None, help="URL to an AVES or Perch checkpoint."),
     pooling: str = typer.Option("mean", help="Embedding pooling: 'mean' or 'max'."),
     batch_size: int = typer.Option(16, help="AVES inference batch size. Increase (e.g. 64, 128) on GPU."),
@@ -116,9 +122,9 @@ def run(
         # if window_sec != 5.0:
         #     raise typer.BadParameter("Perch requires --window-sec 5.0")
         if model:
-            embedder = PerchEmbedder(model_url=model, batch_size=batch_size)
+            embedder = PerchEmbedder(model_url=model, batch_size=batch_size, padding=perch_padding.value)
         else:
-            embedder = PerchEmbedder(batch_size=batch_size)
+            embedder = PerchEmbedder(batch_size=batch_size, padding=perch_padding.value)
     else:
     #     if sample_rate != 16000:
     #         raise typer.BadParameter("AVES requires --sample-rate 16000")

@@ -18,8 +18,8 @@ def main():
         
     all_dfs = []
     
-    # regex to parse: win0.25_hop0.25_perch
-    pattern = re.compile(r"win([\d\.]+)_hop([\d\.]+)_([a-zA-Z0-9_\-]+)")
+    # regex to parse: win0.25_hop0.25_perch_repeat  or  win0.5_hop0.25_perch (legacy)
+    pattern = re.compile(r"win([\d\.]+)_hop([\d\.]+)_([a-zA-Z0-9]+)(?:_(repeat|zero))?")
     
     for child in sweep_out_dir.iterdir():
         if child.is_dir():
@@ -28,6 +28,7 @@ def main():
                 window_sec = float(match.group(1))
                 hop_sec = float(match.group(2))
                 embedder_type = match.group(3)
+                perch_padding = match.group(4) or "repeat"  # default for legacy dirs
                 
                 # find the csv inside
                 sweep_dir = child / "sweep"
@@ -47,6 +48,7 @@ def main():
                     df.insert(0, "embedder_type", embedder_type)
                     df.insert(1, "window_sec", window_sec)
                     df.insert(2, "hop_sec", hop_sec)
+                    df.insert(3, "perch_padding", perch_padding)
                     all_dfs.append(df)
                 except Exception as e:
                     print(f"Error reading {csv_path}: {e}")

@@ -72,6 +72,7 @@ sample_rate: 16000
 
 # AVES embedding
 batch_size: 16               # increase on GPU (e.g. 64, 128)
+perch_padding: repeat        # 'repeat' (tile audio) or 'zero' (zero-fill) for Perch
 
 # UMAP
 umap_components: 2           # for visualization (2-D scatter plot)
@@ -207,6 +208,8 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
 
     if "embedder_type" in params:
         cmd += ["--embedder-type", str(params["embedder_type"])]
+    if "perch_padding" in params:
+        cmd += ["--perch-padding", str(params["perch_padding"])]
     if "model" in params:
         cmd += ["--model", str(params["model"])]
 
@@ -319,12 +322,17 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
     sweep_out_dir = session_dir / "sweep_embed"
     sweep_out_dir.mkdir(exist_ok=True)
 
-    for window_sec, hop_sec, embedder_type in product(sweep_config.get("window_sec"), sweep_config.get("hop_sec"), sweep_config.get("embedder_type")):
+    for window_sec, hop_sec, embedder_type, perch_padding in product(
+        sweep_config.get("window_sec"),
+        sweep_config.get("hop_sec"),
+        sweep_config.get("embedder_type"),
+        sweep_config.get("perch_padding", ["repeat"]),
+    ):
         # skip if the hop and window combination makes the sweep skip audio
         if hop_sec > window_sec:
             continue
         # make sub directory for each sweep session
-        sweep_sesh_name = f"win{window_sec}_hop{hop_sec}_{embedder_type}"
+        sweep_sesh_name = f"win{window_sec}_hop{hop_sec}_{embedder_type}_{perch_padding}"
         sweep_sesh_dir = sweep_out_dir / sweep_sesh_name
         sweep_sesh_dir.mkdir(exist_ok=True)
 
@@ -336,6 +344,7 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
         child_params["window_sec"] = window_sec
         child_params["hop_sec"] = hop_sec
         child_params["embedder_type"] = embedder_type
+        child_params["perch_padding"] = perch_padding
         
         with open(session_dir / "parameters.yml") as f:
             raw_params = yaml.safe_load(f)
