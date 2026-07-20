@@ -313,6 +313,9 @@ def cmd_sweep(session_dir: Path, params: dict):
 
 
 def cmd_sweep_embed(session_dir: Path, params: dict):
+    # toggalable to check if we want to skip existing UMAP/HDBSCANs
+    SKIP_EXISTING = True
+
     sweep_config = params.get("embedding_sweep", {})
     if not sweep_config:
         print("Could nto find 'embedding_sweep' block in parameters.yml")
@@ -359,6 +362,21 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
         child_yml = sweep_sesh_dir / "parameters.yml"
         with open(child_yml, "w") as f:
             yaml.dump(child_params, f, sort_keys=False)
+
+        if SKIP_EXISTING:
+            n_workers = child_params.get("sweep_workers", 2)
+            csv_name = f"results_workers{n_workers}"
+            eps = child_params.get("hdbscan_epsilon", 0.0)
+            alpha = child_params.get("hdbscan_alpha", 1.0)
+            if eps != 0.0:
+                csv_name += f"_eps{eps}"
+            if alpha != 1.0:
+                csv_name += f"_alpha{alpha}"
+            csv_name += ".csv"
+
+            if (sweep_sesh_dir / "sweep" / csv_name).exists():
+                print(f"Skipping {sweep_sesh_name}: results already exist.")
+                continue
             
         print(f"Created embedding sweep: {sweep_sesh_name}, running pipeline:")
 
