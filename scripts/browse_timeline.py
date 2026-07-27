@@ -199,7 +199,10 @@ manual_window = np.full(len(labels), -1, dtype=int)
 unique_types_idx: dict[str, int] = {}
 if manual_labels:
     unique_types_idx = {t: i for i, t in enumerate(sorted(set(t for _, _, t in manual_labels)))}
-    end_secs = start_secs + 0.5  # window_sec
+    _w_sec = params.get("window_sec")
+    if _w_sec is None:
+        _w_sec = 2 * params.get("hop_sec", 0.25)
+    end_secs = start_secs + float(_w_sec)
     best_overlap = np.zeros(len(labels), dtype=float)
     for begin_min, end_min, ltype in manual_labels:
         b, e = begin_min * 60, end_min * 60
@@ -293,13 +296,14 @@ def render_segment(idx, ax_spec, ax_time, ax_dens, ax_manu):
         else:
             spec_chunk = chunk.copy()
 
-        # Peak-normalize each 5-second window to 0.25 (as Perch does internally)
-        window_size = 5 * target_sr
-        for i in range(0, len(spec_chunk), window_size):
-            chunk_slice = spec_chunk[i:i + window_size]
+        embed_window_sec = params.get("window_sec", 2.0)
+        embed_window_len = int(float(embed_window_sec) * target_sr)
+
+        for i in range(0, len(spec_chunk), embed_window_len):
+            chunk_slice = spec_chunk[i:i + embed_window_len]
             peak = np.abs(chunk_slice).max()
             if peak > 1e-8:
-                spec_chunk[i:i + window_size] = chunk_slice * (0.25 / peak)
+                spec_chunk[i:i + len(chunk_slice)] = chunk_slice * (0.25 / peak)
 
         # Front pad 160 samples for exact frame origin alignment
         spec_chunk = np.pad(spec_chunk, (160, 0), mode='constant')

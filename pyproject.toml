@@ -17,12 +17,11 @@ dependencies = [
     "tensorflow>=2.21.0; sys_platform == 'darwin'",
     "tensorflow[and-cuda]>=2.21.0; sys_platform == 'linux'",
     "tensorflow-hub>=0.16.1",
-    "torch>=2.11.0",
-    "torchaudio>=2.11.0",
+    "torch>=2.11.0; sys_platform == 'darwin'",
+    "torchaudio>=2.11.0; sys_platform == 'darwin'",
     "tqdm>=4.67.3",
     "typer>=0.9",
     "umap-learn>=0.5.11",
-    "nvidia-cudnn-cu13==9.19.0.56 ; sys_platform == 'linux'",
 ]
 
 [project.scripts]

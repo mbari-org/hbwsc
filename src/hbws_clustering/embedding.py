@@ -1,22 +1,21 @@
-"""AVES embedding extraction via TorchAudio.
+"""AVES and Perch embedding extraction.
 
 AVES (Audio Visual Embeddings for Self-supervised learning) models are hosted
 by the Earth Species Project on Google Cloud Storage:
   https://github.com/earthspecies/aves
+
+AVES requires ``torch`` and ``torchaudio``; Perch requires ``tensorflow`` and
+``tensorflow-hub``.  Imports are deferred so that only the dependencies of the
+chosen embedder are needed at runtime.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
-import torch
-import torchaudio
-
-import tensorflow as tf
-import tensorflow_hub as hub
 
 from hbws_clustering.windowing import Window
 
@@ -27,9 +26,6 @@ AVES_BASE_ALL = "https://storage.googleapis.com/esp-public-files/ported_aves/ave
 # Google PERCH Model Link from Kaggle
 PERCH_GPU = "https://www.kaggle.com/models/google/bird-vocalization-classifier/tensorFlow2/perch_v2/2"
 PERCH_CPU = "https://www.kaggle.com/models/google/bird-vocalization-classifier/tensorFlow2/perch_v2_cpu/1"
-
-# Local cache directory (mirrors torch.hub convention)
-_CACHE_DIR = Path(torch.hub.get_dir()) / "aves"
 
 
 @dataclass
@@ -55,14 +51,20 @@ class AvesEmbedder:
 
     model_url: str = AVES_BASE_BIO
     pooling: str = "mean"
-    device: str = field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")
+    device: str = "auto"  # resolved to "cuda"/"cpu" on first use
     batch_size: int = 16
 
-    _model: torchaudio.models.Wav2Vec2Model = field(init=False, repr=False, default=None)
+    _model: Any = field(init=False, repr=False, default=None)
 
     def _load(self) -> None:
         if self._model is not None:
             return
+        import torch
+        import torchaudio
+
+        if self.device == "auto":
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
         checkpoint_path = self._download(self.model_url)
         self._model = torchaudio.models.wav2vec2_base()
         state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
@@ -72,9 +74,12 @@ class AvesEmbedder:
 
     @staticmethod
     def _download(url: str) -> Path:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        import torch
+
+        cache_dir = Path(torch.hub.get_dir()) / "aves"
+        cache_dir.mkdir(parents=True, exist_ok=True)
         filename = Path(url).name
-        dest = _CACHE_DIR / filename
+        dest = cache_dir / filename
         if not dest.exists():
             print(f"Downloading AVES checkpoint to {dest} ...")
             torch.hub.download_url_to_file(url, str(dest))
@@ -96,6 +101,8 @@ class AvesEmbedder:
         return np.concatenate(all_embeddings, axis=0)
 
     def _embed_batch(self, batch: list[Window]) -> np.ndarray:
+        import torch
+
         # Stack waveforms; all windows are the same length (AudioWindower pads them)
         waveforms = torch.stack([torch.from_numpy(w.audio) for w in batch]).to(self.device)  # (B, T)
 
@@ -137,14 +144,12 @@ class PerchEmbedder:
 
   
 
-    model_url: str = field(
-        default_factory=lambda: PERCH_GPU if tf.config.list_physical_devices("GPU") else PERCH_CPU
-    )
+    model_url: str = "auto"  # resolved to GPU/CPU variant on first use
     pooling: str = "mean"
     batch_size: int = 64  # Increased from 16 for better CPU parallelism (note: I couldn't tell a difference)
     padding: str = "repeat"
 
-    _model: any = field(init=False, repr=False, default=None)
+    _model: Any = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
         if self.padding not in ("repeat", "zero"):
@@ -155,6 +160,11 @@ class PerchEmbedder:
     def _load(self) -> None:
         if self._model is not None:
             return
+        import tensorflow as tf
+        import tensorflow_hub as hub
+
+        if self.model_url == "auto":
+            self.model_url = PERCH_GPU if tf.config.list_physical_devices("GPU") else PERCH_CPU
         self._model = hub.load(self.model_url)
 
     def embed_windows(self, windows: Sequence[Window]) -> np.ndarray:
