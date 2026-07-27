@@ -54,7 +54,7 @@ class HdbscanClusterer:
 
     def fit(self, reduced: np.ndarray) -> "HdbscanClusterer":
         """Fit on *reduced* (N, d) projected embeddings."""
-        log.info("HDBSCAN backend: %s", _BACKEND)
+        print(f"  HDBSCAN backend: {_BACKEND}")
         min_samples = self.min_samples if self.min_samples is not None else self.min_cluster_size
         self._clusterer = _HDBSCAN(
             min_cluster_size=self.min_cluster_size,

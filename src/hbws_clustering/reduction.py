@@ -50,7 +50,7 @@ class UmapReducer:
 
     def fit(self, embeddings: np.ndarray) -> "UmapReducer":
         """Fit the reducer on *embeddings* (N, D)."""
-        log.info("UMAP backend: %s", _BACKEND)
+        print(f"  UMAP backend: {_BACKEND}")
         self._reducer = _UMAP(
             n_components=self.n_components,
             n_neighbors=self.n_neighbors,
