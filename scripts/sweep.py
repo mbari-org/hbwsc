@@ -91,22 +91,7 @@ import hdbscan as _hdbscan_lib
 _HDBSCAN = _hdbscan_lib.HDBSCAN
 
 
-# ---------------------------------------------------------------------------
-# Worker state for CPU multiprocessing (unused on GPU)
-# ---------------------------------------------------------------------------
-
-_shm_name: str | None = None
-_shm_shape: tuple | None = None
-_shm_dtype: np.dtype | None = None
-
-
-def _init_worker(shm_name: str, shape: tuple, dtype_str: str) -> None:
-    """Attach to shared memory once per worker process (no copy)."""
-    global _shm_name, _shm_shape, _shm_dtype
-    _shm_name = shm_name
-    _shm_shape = shape
-    _shm_dtype = np.dtype(dtype_str)
-
+# Removed global init_worker logic because we pass shm info directly to the worker now.
 
 # ---------------------------------------------------------------------------
 # HDBSCAN runner
@@ -126,6 +111,9 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, eps: floa
         alpha=alpha,
         gen_min_span_tree=True,
     )
+    # Stop HDBSCAN from spawning its own nested joblib workers inside our ProcessPoolExecutor
+    if getattr(_HDBSCAN, "__module__", "").startswith("hdbscan"):
+        hdbscan_kwargs["core_dist_n_jobs"] = 1
 
     clusterer = _HDBSCAN(**hdbscan_kwargs)
     clusterer.fit(reduced)
@@ -191,11 +179,12 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, eps: floa
     return ret
 
 
-def _run_hdbscan_from_shm(umap_dims: int, mcs: int, eps: float, alpha: float,
+def _run_hdbscan_from_shm(shm_name: str, shape: tuple, dtype_str: str,
+                           umap_dims: int, mcs: int, eps: float, alpha: float,
                            t_umap: float, manual_window=None) -> dict:
     """CPU multiprocessing wrapper: reads reduced data from shared memory."""
-    shm = SharedMemory(name=_shm_name)
-    reduced = np.ndarray(_shm_shape, dtype=_shm_dtype, buffer=shm.buf)
+    shm = SharedMemory(name=shm_name)
+    reduced = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
     result = _run_single_hdbscan(reduced, umap_dims, mcs, eps, alpha, t_umap, manual_window)
     shm.close()
     return result
@@ -286,47 +275,43 @@ def main() -> None:
     
     t_sweep_start = time.perf_counter()
 
-    for umap_dims in dims_list:
-        # Serial UMAP fit
-        print(
-            f"\n  [UMAP] Fitting {umap_dims}-D reduction on "
-            f"{embeddings.shape[0]} embeddings ...",
-            end="", flush=True,
-        )
-        t0 = time.perf_counter()
-        reducer = _UMAP(
-            n_components=umap_dims,
-            n_neighbors=n_neighbors,
-            metric="cosine",
-            random_state=42,
-        )
-        reduced = reducer.fit_transform(embeddings)
-        # cuML may return cupy array
-        if hasattr(reduced, "get"):
-            reduced = reduced.get()
-        reduced = np.ascontiguousarray(reduced, dtype=np.float32)
-        t_umap = time.perf_counter() - t0
-        print(f" done ({t_umap:.1f}s)")
+    # Reuse the same ProcessPoolExecutor for the entire script to avoid joblib hangs
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        for umap_dims in dims_list:
+            # Serial UMAP fit
+            print(
+                f"\n  [UMAP] Fitting {umap_dims}-D reduction on "
+                f"{embeddings.shape[0]} embeddings ...",
+                end="", flush=True,
+            )
+            t0 = time.perf_counter()
+            reducer = _UMAP(
+                n_components=umap_dims,
+                n_neighbors=n_neighbors,
+                metric="cosine",
+                random_state=42,
+            )
+            reduced = reducer.fit_transform(embeddings)
+            # cuML may return cupy array
+            if hasattr(reduced, "get"):
+                reduced = reduced.get()
+            reduced = np.ascontiguousarray(reduced, dtype=np.float32)
+            t_umap = time.perf_counter() - t0
+            print(f" done ({t_umap:.1f}s)")
 
-        # Parallel HDBSCAN via shared memory
-        shm = SharedMemory(create=True, size=reduced.nbytes)
-        shm_arr = np.ndarray(reduced.shape, dtype=reduced.dtype, buffer=shm.buf)
-        shm_arr[:] = reduced
-        red_shape = reduced.shape
-        red_dtype = reduced.dtype
-        del shm_arr
+            # Parallel HDBSCAN via shared memory
+            shm = SharedMemory(create=True, size=reduced.nbytes)
+            shm_arr = np.ndarray(reduced.shape, dtype=reduced.dtype, buffer=shm.buf)
+            shm_arr[:] = reduced
+            red_shape = reduced.shape
+            red_dtype = reduced.dtype
+            del shm_arr
 
-        try:
-            initargs = (shm.name, red_shape, red_dtype.str)
-            with ProcessPoolExecutor(
-                max_workers=n_workers,
-                initializer=_init_worker,
-                initargs=initargs,
-            ) as executor:
+            try:
                 futures = {
                     executor.submit(
-                        _run_hdbscan_from_shm, umap_dims, mcs, eps,
-                        args.alpha, t_umap, manual_window,
+                        _run_hdbscan_from_shm, shm.name, red_shape, red_dtype.str,
+                        umap_dims, mcs, eps, args.alpha, t_umap, manual_window,
                     ): (umap_dims, mcs, eps)
                     for mcs, eps in product(mcs_list, eps_list)
                 }
@@ -334,9 +319,9 @@ def main() -> None:
                     row = f.result()
                     rows.append(row)
                     print(fmt_row(row), flush=True)
-        finally:
-            shm.close()
-            shm.unlink()
+            finally:
+                shm.close()
+                shm.unlink()
 
     rows.sort(key=lambda r: (r["umap_dims"], r["mcs"]))
 
