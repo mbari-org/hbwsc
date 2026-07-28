@@ -153,6 +153,7 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, eps: floa
         dbcv = float("nan")
 
     # Similarity metrics
+    t1 = time.perf_counter()
     if manual_window is not None:
         metrics = compute_metrics(labels, manual_window)
         jaccard = metrics["DetSim"]
@@ -164,6 +165,7 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, eps: floa
         nmi = float("nan")
         ari = float("nan")
         v_hom = float("nan")
+    t_metrics = time.perf_counter() - t1
 
     ret = {
         "umap_dims": umap_dims,
@@ -177,6 +179,7 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, eps: floa
         "max_sz": max_sz,
         "t_umap_s": round(t_umap, 1),
         "t_hdbscan_s": round(t_hdbscan, 1),
+        "t_metrics_s": round(t_metrics, 2),
     }
 
     if manual_window is not None:
@@ -264,8 +267,9 @@ def main() -> None:
         "max_sz",
         "t_umap_s",
         "t_hdbscan_s",
+        "t_metrics_s",
     ]
-    col_w = [9, 5, 5, 10, 10, 8, 10, 7, 7, 10, 12]
+    col_w = [9, 5, 5, 10, 10, 8, 10, 7, 7, 10, 12, 12]
 
     if manual_window is not None:
         header.extend(["detsim", "nmi", "ari", "homog"])
@@ -279,6 +283,8 @@ def main() -> None:
     print("  ".join("-" * w for w in col_w))
 
     rows = []
+    
+    t_sweep_start = time.perf_counter()
 
     for umap_dims in dims_list:
         # Serial UMAP fit
@@ -340,6 +346,9 @@ def main() -> None:
             writer.writeheader()
             writer.writerows(rows)
         print(f"\nResults saved to {args.out}")
+
+    t_sweep_total = time.perf_counter() - t_sweep_start
+    print(f"\nTotal sweep time: {t_sweep_total:.1f}s")
 
 
 if __name__ == "__main__":
