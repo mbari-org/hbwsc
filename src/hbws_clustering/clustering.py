@@ -11,6 +11,9 @@ import numpy as np
 # with RAPIDS installed).  Falls back to the CPU hdbscan package otherwise.
 try:
     from cuml.cluster import HDBSCAN as _HDBSCAN
+    import rmm
+
+    rmm.reinitialize(pool_allocator=True)
 
     _BACKEND = "cuml"
 except ImportError:

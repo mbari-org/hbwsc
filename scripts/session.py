@@ -43,6 +43,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from itertools import product
 
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.evaluation import load_raven_labels, map_labels_to_windows, compute_metrics
+
 try:
     import yaml
 except ImportError:
@@ -250,6 +254,28 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
                 ("noise" if int(lbl) == -1 else f"cluster {int(lbl)}"): int(cnt) for lbl, cnt in zip(unique, counts)
             },
         }
+
+        # If manual labels exist, compute metrics directly for the summary
+        if "manual_labels" in params:
+            manual_labels = Path(params["manual_labels"])
+            if not manual_labels.is_absolute():
+                manual_labels = session_dir / manual_labels
+            if manual_labels.exists():
+                try:
+                    manual = load_raven_labels(manual_labels)
+                    start_secs = r["start_secs"]
+                    
+                    window_sec = float(params["window_sec"])
+                    end_secs = start_secs + window_sec
+                    
+                    manual_window, _ = map_labels_to_windows(manual, start_secs, end_secs)
+                    metrics = compute_metrics(labels, manual_window)
+                    
+                    if not np.isnan(metrics.get("DetSim", float("nan"))):
+                        summary["evaluation"] = metrics
+                        print("Evaluated against manual labels and added metrics to summary.")
+                except Exception as e:
+                    print(f"Warning: Could not compute metrics for summary: {e}")
         summary_path = d / "cluster_summary.json"
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)

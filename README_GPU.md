@@ -4,15 +4,10 @@ The clustering pipeline supports GPU-accelerated **UMAP** and **HDBSCAN** via [c
 
 ## Installation
 
-Because cuML relies on heavy CUDA C++ libraries and has strict dependency requirements (like `pandas < 2.4`), it is placed in an optional `gpu` dependency group in `pyproject.toml`.
+Because cuML relies on a massive ~3GB tree of NVIDIA CUDA C++ libraries, it is placed in an optional `gpu` dependency group in `pyproject.toml`. This creates a dual-environment setup:
 
-To use GPU acceleration on a Linux machine, simply install the project with the `gpu` group enabled:
-
-```bash
-uv sync --group gpu
-```
-
-This will automatically pull `cuml-cu12` and its required NVIDIA libraries from the `https://pypi.nvidia.com` index.
+* **On Mac (CPU-only):** Run `uv sync`. This ignores the RAPIDS packages entirely, giving you a fast, lightweight environment.
+* **On Linux (GPU-accelerated):** Run `uv sync --group gpu`. This tells `uv` to include the extra GPU dependencies and pulls `cuml-cu12` (and its required NVIDIA libraries) from the `https://pypi.nvidia.com` index.
 
 ## Verification
 

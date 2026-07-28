@@ -69,7 +69,10 @@ from pathlib import Path
 import hdbscan
 import numpy as np
 import umap as umap_lib
-from sklearn.metrics import normalized_mutual_info_score, homogeneity_completeness_v_measure, adjusted_rand_score
+
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.evaluation import load_raven_labels, map_labels_to_windows, compute_metrics
 
 # Worker receives shared-memory metadata for the UMAP-reduced array.
 _shm_name: str | None = None
@@ -123,25 +126,11 @@ def run_hdbscan(umap_dims: int, mcs: int, eps: float, alpha: float,
 
     # Similarity metrics
     if manual_window is not None:
-        is_clustered = labels >= 0
-        is_labelled = manual_window >= 0
-        in_both = is_clustered & is_labelled
-
-        intersection = in_both.sum()
-        union = (is_clustered | is_labelled).sum()
-        jaccard = float(intersection / union) if union > 0 else 0.0
-
-        c_in = labels[in_both]
-        m_in = manual_window[in_both]
-        if len(m_in) > 0:
-            nmi = float(normalized_mutual_info_score(m_in, c_in))
-            ari = float(adjusted_rand_score(m_in, c_in))
-            v_hom, _, _ = homogeneity_completeness_v_measure(m_in, c_in)
-            v_hom = float(v_hom)
-        else:
-            nmi = 0.0
-            ari = 0.0
-            v_hom = 0.0
+        metrics = compute_metrics(labels, manual_window)
+        jaccard = metrics["DetSim"]
+        nmi = metrics["NMI"]
+        ari = metrics["ARI"]
+        v_hom = metrics["Homogeneity"]
     else:
         jaccard = float("nan")
         nmi = float("nan")
@@ -219,26 +208,8 @@ def main() -> None:
         end_secs = start_secs + window_sec
         n_windows = len(start_secs)
 
-        manual = []
-        with open(args.manual_labels) as f:
-            reader = csv.DictReader(f, delimiter="\t")
-            for row in reader:
-                manual.append((float(row["Begin Time (s)"]), float(row["End Time (s)"]), row["Type"].strip()))
-
-        unique_types = sorted(set(t for _, _, t in manual))
-        type_to_idx = {t: i for i, t in enumerate(unique_types)}
-
-        manual_window = np.full(n_windows, -1, dtype=int)
-        for i in range(n_windows):
-            ws, we = start_secs[i], end_secs[i]
-            best_overlap = 0.0
-            best_type = -1
-            for begin, end, ltype in manual:
-                overlap = max(0.0, min(we, end) - max(ws, begin))
-                if overlap > best_overlap:
-                    best_overlap = overlap
-                    best_type = type_to_idx[ltype]
-            manual_window[i] = best_type
+        manual = load_raven_labels(args.manual_labels)
+        manual_window, _ = map_labels_to_windows(manual, start_secs, end_secs)
 
     header = [
         "umap_dims",

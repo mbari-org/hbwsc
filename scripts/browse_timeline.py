@@ -34,7 +34,10 @@ import matplotlib.widgets as mwidgets
 import numpy as np
 import soundfile as sf
 from scipy.signal import spectrogram as scipy_spectrogram
-from sklearn.metrics import normalized_mutual_info_score, homogeneity_score, adjusted_rand_score
+
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.evaluation import map_labels_to_windows, compute_metrics
 
 _IS_MACOS = platform.system() == "Darwin"
 if not _IS_MACOS:
@@ -197,20 +200,16 @@ is_clustered = labels >= 0
 is_labelled = np.zeros(len(labels), dtype=bool)
 manual_window = np.full(len(labels), -1, dtype=int)
 unique_types_idx: dict[str, int] = {}
+
 if manual_labels:
-    unique_types_idx = {t: i for i, t in enumerate(sorted(set(t for _, _, t in manual_labels)))}
     _w_sec = params.get("window_sec")
     if _w_sec is None:
         _w_sec = 2 * params.get("hop_sec", 0.25)
     end_secs = start_secs + float(_w_sec)
-    best_overlap = np.zeros(len(labels), dtype=float)
-    for begin_min, end_min, ltype in manual_labels:
-        b, e = begin_min * 60, end_min * 60
-        overlap = np.minimum(end_secs, e) - np.maximum(start_secs, b)
-        np.clip(overlap, 0.0, None, out=overlap)
-        better = overlap > best_overlap
-        best_overlap = np.where(better, overlap, best_overlap)
-        manual_window = np.where(better, unique_types_idx[ltype], manual_window)
+    
+    # Convert UI minute labels back to seconds for the mapper
+    manual_sec = [(b * 60, e * 60, t) for b, e, t in manual_labels]
+    manual_window, unique_types_idx = map_labels_to_windows(manual_sec, start_secs, end_secs)
     is_labelled = manual_window >= 0
 
 def _segment_metrics(t_min: float, t_max: float) -> dict | None:
@@ -221,19 +220,15 @@ def _segment_metrics(t_min: float, t_max: float) -> dict | None:
     if not manual_labels:
         return None
     mask = (x_minutes >= t_min) & (x_minutes < t_max)
-    c = is_clustered[mask]
-    m = is_labelled[mask]
-    inter = c & m
-    union = c | m
-    detsim = inter.sum() / union.sum() if union.any() else 0.0
-    if inter.sum() < 2:
-        return {"detsim": detsim, "nmi": float("nan"), "ari": float("nan"), "homog": float("nan")}
-    seg_labels = labels[mask][inter]
-    seg_manual = manual_window[mask][inter]
-    nmi = normalized_mutual_info_score(seg_manual, seg_labels)
-    ari = adjusted_rand_score(seg_manual, seg_labels)
-    homog = homogeneity_score(seg_manual, seg_labels)
-    return {"detsim": detsim, "nmi": nmi, "ari": ari, "homog": homog}
+    metrics = compute_metrics(labels[mask], manual_window[mask])
+    
+    # Map back to old keys expected by the UI for now
+    return {
+        "detsim": metrics["DetSim"],
+        "nmi": metrics["NMI"],
+        "ari": metrics["ARI"],
+        "homog": metrics["Homogeneity"]
+    }
 
 overall_metrics = _segment_metrics(0, total_minutes)
 if overall_metrics is not None:

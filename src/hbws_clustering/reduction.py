@@ -11,6 +11,10 @@ import numpy as np
 # with RAPIDS installed).  Falls back to the CPU umap-learn package otherwise.
 try:
     from cuml.manifold import UMAP as _UMAP
+    import rmm
+
+    # RMM pool allocator prevents memory fragmentation and cudaMalloc bottlenecks
+    rmm.reinitialize(pool_allocator=True)
 
     _BACKEND = "cuml"
 except ImportError:
