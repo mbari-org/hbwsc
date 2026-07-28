@@ -73,5 +73,13 @@ class UmapReducer:
 
     def fit_transform(self, embeddings: np.ndarray) -> np.ndarray:
         """Fit and project in one step."""
-        self.fit(embeddings)
-        return self.transform(embeddings)
+        print(f"  UMAP backend: {_BACKEND}")
+        if self._reducer is None:
+            self._reducer = _UMAP(
+                n_components=self.n_components,
+                n_neighbors=self.n_neighbors,
+                min_dist=self.min_dist,
+                metric=self.metric,
+                random_state=self.random_state,
+            )
+        return self._reducer.fit_transform(embeddings).astype(np.float32)
