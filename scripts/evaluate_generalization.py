@@ -208,11 +208,7 @@ def main():
         labels = r_pred["labels"]
         start_secs = r_pred["start_secs"]
         
-        # Infer hop_sec from start_secs array
-        if len(start_secs) > 1:
-            pred_window_sec = float(train_params.get("window_sec", eval_params["window_sec"]))
-        else:
-            pred_window_sec = float(eval_params["window_sec"])
+        pred_window_sec = float(eval_inherited_params.get("window_sec", 2.0))
             
         end_secs = start_secs + pred_window_sec
         
