@@ -479,7 +479,7 @@ def cmd_aggregate_sweep_embed(session_dir: Path):
 # Entry point
 # ---------------------------------------------------------------------------
 
-COMMANDS = {"init", "run", "sweep", "analyze", "inspect", "sweep-embed", "aggregate-sweep-embed"}
+COMMANDS = {"init", "run", "sweep", "analyze", "inspect", "sweep-embed", "aggregate-sweep-embed", "evaluate-generalization"}
 
 if len(sys.argv) < 3 or sys.argv[2] not in COMMANDS:
     print(__doc__)
@@ -508,3 +508,13 @@ else:
         cmd_sweep_embed(session_dir, params)
     elif command == "aggregate-sweep-embed":
         cmd_aggregate_sweep_embed(session_dir)
+    elif command == "evaluate-generalization":
+        if not extra:
+            print("ERROR: evaluate-generalization requires an eval_session directory.")
+            sys.exit(1)
+        # Pass through to the dedicated script
+        cmd = ["uv", "run", "python", "scripts/evaluate_generalization.py", str(session_dir), extra]
+        # Check if drop-noise was passed
+        if "--drop-noise" in sys.argv:
+            cmd.append("--drop-noise")
+        run_cmd(cmd)

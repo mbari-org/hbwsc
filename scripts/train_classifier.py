@@ -12,6 +12,7 @@ Arguments:
     [FUTURE] --classifier  type of classifier (logreg, kmeans, random forest ...).
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -21,13 +22,14 @@ import joblib
 
 # --- args ---------------------------------------------------------------------
 
-args = sys.argv[1:]
-if not args:
-    print(__doc__)
-    sys.exit(1)
+parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+parser.add_argument("npz", type=Path, help="Path to a results .npz file produced by hbws-cluster")
+parser.add_argument("out_pkl", type=Path, nargs="?", default=None, help="Output model path")
+parser.add_argument("--drop-noise", action="store_true", help="Drop labels with -1 (noise) before training")
+args = parser.parse_args()
 
-npz_path = Path(args[0])
-model_out = Path(args[1]) if len(args) > 1 and args[1] else npz_path.parent / "models" / f"{npz_path.stem}_model.pkl"
+npz_path = args.npz
+model_out = args.out_pkl if args.out_pkl else npz_path.parent / "models" / f"{npz_path.stem}_model.pkl"
 
 if model_out.exists():
     print(f"Model {model_out} already exists. Skipping training.")
@@ -38,6 +40,12 @@ if model_out.exists():
 r = np.load(npz_path, allow_pickle=False)
 X_train = r["embeddings"]
 y_train = r["labels"]
+
+if args.drop_noise:
+    valid_idx = y_train != -1
+    X_train = X_train[valid_idx]
+    y_train = y_train[valid_idx]
+    print(f"Dropped noise: keeping {len(y_train)} / {len(r['labels'])} windows.")
 
 # --- model training ------------------------------------------------------
 
