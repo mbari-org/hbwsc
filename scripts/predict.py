@@ -18,6 +18,7 @@ import numpy as np
 
 from hbws_clustering.windowing import AudioWindower
 from hbws_clustering.embedding import PerchEmbedder, AvesEmbedder
+from hbws_clustering.clustering import HdbscanClusterer  # Forces CUDA libraries to load for TensorFlow
 
 # --- args ---------------------------------------------------------------------
 
@@ -73,8 +74,16 @@ if embeddings_file.exists():
 
 if embeddings is None:
     print("Computing embeddings...")
-    embedder = PerchEmbedder(batch_size=64)
+    embedder_type = params.get('embedder_type', 'aves')
+    if embedder_type == 'perch':
+        embedder = PerchEmbedder(batch_size=params.get('batch_size', 64), padding=params.get('perch_padding', 'repeat'))
+    else:
+        embedder = AvesEmbedder(batch_size=params.get('batch_size', 16))
     embeddings = embedder.embed_windows(windows)
+    
+    print(f"Saving computed embeddings to {embeddings_file}...")
+    np.save(embeddings_file, embeddings)
+
 labels = model.predict(embeddings)
 
 # --- save output ---------------------------------------------------------------------
