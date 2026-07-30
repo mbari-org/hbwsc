@@ -167,6 +167,11 @@ gpu_embeddings batch_size:
 
 
 ###########################
+## Run Cluster-Eval Pipeline
+cluster_eval train_dir eval_dir audio="../../MARS_20161221_000046_32kHz.wav" labels="../../ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt":
+    uv run python scripts/session.py {{ train_dir }} evaluate-generalization {{ eval_dir }} --drop-noise
+        --eval-audio {{ audio }} --eval-labels {{ labels }}
+
 
 # Install uv (if not already installed)
 install-uv:

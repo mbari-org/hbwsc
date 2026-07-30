@@ -49,10 +49,26 @@ def main():
     parser.add_argument("--max-clusters", type=int, default=30, help="Maximum number of clusters (default: 30)")
     parser.add_argument("--max-noise", type=float, default=40.0, help="Maximum allowed noise percentage (default: 40.0)")
     parser.add_argument("--drop-noise", action="store_true", help="Drop noise points when training classifier")
+    parser.add_argument("--eval-audio", type=Path, default=None, help="Auto-initialize eval session with this audio file")
+    parser.add_argument("--eval-labels", type=Path, default=None, help="Auto-initialize eval session with these Raven labels")
     args = parser.parse_args()
 
     train_dir = args.train_session.resolve()
     eval_dir = args.eval_session.resolve()
+    
+    # Auto-initialize eval session if audio and labels are provided
+    if args.eval_audio and args.eval_labels:
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        eval_yml = eval_dir / "parameters.yml"
+        if not eval_yml.exists():
+            print(f"Auto-initializing eval session at {eval_dir}...")
+            import yaml
+            minimal_params = {
+                "audio_files": [str(args.eval_audio.resolve())],
+                "manual_labels": str(args.eval_labels.resolve())
+            }
+            with open(eval_yml, "w") as f:
+                yaml.dump(minimal_params, f, sort_keys=False)
     
     # Read Sweep CSV
     sweep_dir = train_dir / "sweep"

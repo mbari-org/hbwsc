@@ -512,9 +512,6 @@ else:
         if not extra:
             print("ERROR: evaluate-generalization requires an eval_session directory.")
             sys.exit(1)
-        # Pass through to the dedicated script
-        cmd = ["uv", "run", "python", "scripts/evaluate_generalization.py", str(session_dir), extra]
-        # Check if drop-noise was passed
-        if "--drop-noise" in sys.argv:
-            cmd.append("--drop-noise")
+        # Pass through all remaining arguments to the dedicated script
+        cmd = ["uv", "run", "python", "scripts/evaluate_generalization.py", str(session_dir)] + sys.argv[3:]
         run_cmd(cmd)
