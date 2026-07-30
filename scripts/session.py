@@ -481,37 +481,38 @@ def cmd_aggregate_sweep_embed(session_dir: Path):
 
 COMMANDS = {"init", "run", "sweep", "analyze", "inspect", "sweep-embed", "aggregate-sweep-embed", "evaluate-generalization"}
 
-if len(sys.argv) < 3 or sys.argv[2] not in COMMANDS:
-    print(__doc__)
-    print(f"Commands: {', '.join(sorted(COMMANDS))}")
-    sys.exit(1)
+if __name__ == "__main__":
+    if len(sys.argv) < 3 or sys.argv[2] not in COMMANDS:
+        print(__doc__)
+        print(f"Commands: {', '.join(sorted(COMMANDS))}")
+        sys.exit(1)
 
-session_dir = Path(sys.argv[1])
-command = sys.argv[2]
-extra = sys.argv[3] if len(sys.argv) > 3 else ""
+    session_dir = Path(sys.argv[1])
+    command = sys.argv[2]
+    extra = sys.argv[3] if len(sys.argv) > 3 else ""
 
-if command == "init":
-    window_sec = sys.argv[3] if len(sys.argv) > 3 else "0.5"
-    hop_sec = sys.argv[4] if len(sys.argv) > 4 else "0.25"
-    cmd_init(session_dir, window_sec, hop_sec)
-else:
-    params = load_params(session_dir)
-    if command == "run":
-        cmd_run(session_dir, params, extra)
-    elif command == "sweep":
-        cmd_sweep(session_dir, params)
-    elif command == "analyze":
-        cmd_analyze(session_dir, params, extra)
-    elif command == "inspect":
-        cmd_inspect(session_dir, params, extra)
-    elif command == "sweep-embed":
-        cmd_sweep_embed(session_dir, params)
-    elif command == "aggregate-sweep-embed":
-        cmd_aggregate_sweep_embed(session_dir)
-    elif command == "evaluate-generalization":
-        if not extra:
-            print("ERROR: evaluate-generalization requires an eval_session directory.")
-            sys.exit(1)
-        # Pass through all remaining arguments to the dedicated script
-        cmd = ["uv", "run", "python", "scripts/evaluate_generalization.py", str(session_dir)] + sys.argv[3:]
-        run_cmd(cmd)
+    if command == "init":
+        window_sec = sys.argv[3] if len(sys.argv) > 3 else "0.5"
+        hop_sec = sys.argv[4] if len(sys.argv) > 4 else "0.25"
+        cmd_init(session_dir, window_sec, hop_sec)
+    else:
+        params = load_params(session_dir)
+        if command == "run":
+            cmd_run(session_dir, params, extra)
+        elif command == "sweep":
+            cmd_sweep(session_dir, params)
+        elif command == "analyze":
+            cmd_analyze(session_dir, params, extra)
+        elif command == "inspect":
+            cmd_inspect(session_dir, params, extra)
+        elif command == "sweep-embed":
+            cmd_sweep_embed(session_dir, params)
+        elif command == "aggregate-sweep-embed":
+            cmd_aggregate_sweep_embed(session_dir)
+        elif command == "evaluate-generalization":
+            if not extra:
+                print("ERROR: evaluate-generalization requires an eval_session directory.")
+                sys.exit(1)
+            # Pass through all remaining arguments to the dedicated script
+            cmd = ["uv", "run", "python", "scripts/evaluate_generalization.py", str(session_dir)] + sys.argv[3:]
+            run_cmd(cmd)
