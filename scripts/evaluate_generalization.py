@@ -1,11 +1,12 @@
 """Evaluate clustering generalization across sessions.
 
 This orchestrator script runs a full pipeline:
-1. Filters a sweep CSV from a train session to find the top configurations based on constraints.
-2. Generates the cluster assignments (pseudo-labels) for those top configs on the train session.
-3. Trains a classifier on those pseudo-labels.
-4. Uses the classifier to predict labels for an evaluation session.
-5. Compares the predicted labels against the evaluation session's manual ground truth.
+1. Reads the combined sweep CSV (from aggregate-sweep-embed) or a single session's sweep CSV.
+2. Filters to the top configurations based on DBCV, cluster count, and noise constraints.
+3. Generates the cluster assignments (pseudo-labels) for those top configs on the train session.
+4. Trains a classifier on those pseudo-labels.
+5. Uses the classifier to predict labels for an evaluation session.
+6. Compares the predicted labels against the evaluation session's manual ground truth.
 
 Usage:
     uv run python scripts/evaluate_generalization.py <train_session> <eval_session> [options]
@@ -16,18 +17,22 @@ Options:
     --max-clusters   Maximum number of clusters allowed (default: 30)
     --max-noise      Maximum allowed noise percentage (default: 40.0)
     --drop-noise     Drop noise points (-1) when training the classifier
+    --eval-audio     Auto-initialize eval session with this audio file
+    --eval-labels    Auto-initialize eval session with these Raven labels
 """
 
 import argparse
 import csv
+import os
 import sys
 import subprocess
 from pathlib import Path
 import numpy as np
+import yaml
 
 # Ensure scripts and src are accessible
 sys.path.insert(0, str(Path(__file__).parent))
-from session import load_params, cmd_run, mcs_dir
+from session import load_params, cmd_run, mcs_dir, cmd_sweep_embed, cmd_aggregate_sweep_embed
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from hbws_clustering.evaluation import load_raven_labels, map_labels_to_windows, compute_metrics
@@ -62,25 +67,40 @@ def main():
         eval_yml = eval_dir / "parameters.yml"
         if not eval_yml.exists():
             print(f"Auto-initializing eval session at {eval_dir}...")
-            import yaml
             minimal_params = {
                 "audio_files": [str(args.eval_audio.resolve())],
                 "manual_labels": str(args.eval_labels.resolve())
             }
             with open(eval_yml, "w") as f:
                 yaml.dump(minimal_params, f, sort_keys=False)
+
+    # ---------------------------------------------------------------------------
+    # Run embedding sweep -> aggregate -> read combined CSV
+    # ---------------------------------------------------------------------------
+    train_params_root = load_params(train_dir)
+    if "embedding_sweep" not in train_params_root:
+        print("Error: parameters.yml must have an 'embedding_sweep' block.")
+        sys.exit(1)
+
+    sweep_embed_dir = train_dir / "sweep_embed"
+    combined_csv = sweep_embed_dir / "combined_results.csv"
+
+    print(f"\nRunning sweep-embed pipeline...")
+    cmd_sweep_embed(train_dir, train_params_root)
     
-    # Read Sweep CSV
-    sweep_dir = train_dir / "sweep"
-    csv_files = list(sweep_dir.glob("results*.csv"))
-    if not csv_files:
-        print(f"Error: No sweep CSV found in {sweep_dir}. Run 'session.py <train_session> sweep' first.")
+    print(f"\nAggregating sweep results...")
+    cmd_aggregate_sweep_embed(train_dir)
+    
+    if not combined_csv.exists():
+        print(f"Error: aggregate-sweep-embed failed to produce {combined_csv}")
         sys.exit(1)
     
-    # Just take the first matching sweep results
-    csv_file = csv_files[0]
-    print(f"Using sweep results: {csv_file}")
-    
+    print(f"\nUsing sweep results: {combined_csv}")
+    csv_file = combined_csv
+
+    # ---------------------------------------------------------------------------
+    # Read CSV and filter to top configurations
+    # ---------------------------------------------------------------------------
     valid_runs = []
     with open(csv_file, "r") as f:
         reader = csv.DictReader(f)
@@ -91,7 +111,7 @@ def main():
             dbcv = float(row["dbcv"]) if row["dbcv"] not in ("nan", "NaN") else -2.0
             
             if args.min_clusters <= n_clusters <= args.max_clusters and noise_pct <= args.max_noise:
-                row["dbcv_val"] = dbcv # cache for sorting
+                row["dbcv_val"] = dbcv  # cache for sorting
                 valid_runs.append(row)
                 
     if not valid_runs:
@@ -103,9 +123,12 @@ def main():
     
     print(f"\nTop {len(top_runs)} configurations passing heuristics:")
     for i, r in enumerate(top_runs):
-        print(f" {i+1}. {r['umap_dims']}D, mcs={r['mcs']}, eps={r['eps']} | n={r['n_clusters']}, noise={r['noise_pct']}%, dbcv={r['dbcv']}")
+        prefix = f"win={r['window_sec']}, hop={r['hop_sec']}, {r['embedder_type']}, {r['perch_padding']} | "
+        print(f" {i+1}. {prefix}{r['umap_dims']}D, mcs={r['mcs']}, eps={r['eps']} | n={r['n_clusters']}, noise={r['noise_pct']}%, dbcv={r['dbcv']}")
 
-    # Eval session manual labels
+    # ---------------------------------------------------------------------------
+    # Load eval session manual labels
+    # ---------------------------------------------------------------------------
     eval_params = load_params(eval_dir)
     if "manual_labels" not in eval_params:
         print("Error: eval_session must have 'manual_labels' defined in parameters.yml to evaluate generalization.")
@@ -115,32 +138,42 @@ def main():
     if not manual_labels_path.is_absolute():
         manual_labels_path = eval_dir / manual_labels_path
         
-    print(f"\nLoading eval session manual labels from {manual_labels_path}")
+    print(f"Loading eval session manual labels from {manual_labels_path}")
     manual = load_raven_labels(manual_labels_path)
-    
-    results = []
+
+    # ---------------------------------------------------------------------------
+    # Evaluate each top configuration
+    # ---------------------------------------------------------------------------
+    master_results = []
 
     for idx, run in enumerate(top_runs):
+        sub_session_name = f"win{run['window_sec']}_hop{run['hop_sec']}_{run['embedder_type']}_{run['perch_padding']}"
+        session_dir = sweep_embed_dir / sub_session_name
+        window_sec_val = float(run["window_sec"])
+        hop_sec_val = float(run["hop_sec"])
+        embedder_val = run["embedder_type"]
+        padding_val = run["perch_padding"]
+        
         print(f"\n{'='*70}")
-        print(f"=== Evaluating Config {idx+1}/{len(top_runs)}: {run['umap_dims']}D, mcs={run['mcs']}, eps={run['eps']}")
+        print(f"=== [{idx+1}/{len(top_runs)}] {session_dir.name}: {run['umap_dims']}D, mcs={run['mcs']}, eps={run['eps']}")
         print(f"{'='*70}")
         
-        train_params = load_params(train_dir)
+        train_params = load_params(session_dir)
         train_params["umap_cluster_components"] = int(run["umap_dims"])
         train_params["hdbscan_epsilon"] = float(run["eps"])
         mcs_val = run["mcs"]
         
         # Generate cluster labels on train session
-        d, _ = mcs_dir(train_dir, train_params, mcs_val)
+        d, _ = mcs_dir(session_dir, train_params, mcs_val)
         npz = d / "results.npz"
         if not npz.exists():
             print(f"Generating cluster labels for train session...")
-            cmd_run(train_dir, train_params, mcs_val)
+            cmd_run(session_dir, train_params, mcs_val)
         else:
             print(f"Found existing clustering results: {npz}")
             
         # Train classifier
-        model_pkl = train_dir / "models" / f"{npz.parent.name}_model.pkl"
+        model_pkl = session_dir / "models" / f"{npz.parent.name}_model.pkl"
         if not model_pkl.exists():
             print(f"Training classifier on cluster labels...")
             cmd = ["uv", "run", "python", "scripts/train_classifier.py", str(npz), str(model_pkl)]
@@ -157,20 +190,19 @@ def main():
             if key in train_params:
                 eval_inherited_params[key] = train_params[key]
                 
-        import yaml
-        inherited_yml_path = eval_dir / f"parameters_inherited_from_{train_dir.name}.yml"
+        inherited_yml_path = eval_dir / f"parameters_inherited_from_{session_dir.name}.yml"
         with open(inherited_yml_path, "w") as f:
             yaml.dump(eval_inherited_params, f, sort_keys=False)
             
-        pred_npz = eval_dir / "predictions" / f"{train_dir.name}_{model_pkl.stem}_predictions.npz"
+        pred_npz = eval_dir / "predictions" / f"{session_dir.name}_{model_pkl.stem}_predictions.npz"
         if not pred_npz.exists():
-            print(f"Running inference on evaluation session (inheriting {train_dir.name} windowing)...")
+            print(f"Running inference on evaluation session (inheriting {session_dir.name} windowing)...")
             cmd = ["uv", "run", "python", "scripts/predict.py", str(inherited_yml_path), str(model_pkl), str(pred_npz)]
             run_subprocess(cmd)
         else:
             print(f"Found existing predictions: {pred_npz}")
             
-        # 5. Evaluate against ground truth
+        # Evaluate against ground truth
         print(f"Evaluating predictions against manual labels...")
         r_pred = np.load(pred_npz, allow_pickle=False)
         labels = r_pred["labels"]
@@ -178,12 +210,11 @@ def main():
         
         # Infer hop_sec from start_secs array
         if len(start_secs) > 1:
-            hop_sec = float(np.median(np.diff(start_secs)))
+            pred_window_sec = float(train_params.get("window_sec", eval_params["window_sec"]))
         else:
-            hop_sec = float(eval_params["hop_sec"])
+            pred_window_sec = float(eval_params["window_sec"])
             
-        window_sec = float(eval_params["window_sec"])
-        end_secs = start_secs + window_sec
+        end_secs = start_secs + pred_window_sec
         
         manual_window, _ = map_labels_to_windows(manual, start_secs, end_secs)
         metrics = compute_metrics(labels, manual_window)
@@ -195,7 +226,12 @@ def main():
         
         agg = np.nanmean([nmi, ari, homog])
         
-        results.append({
+        master_results.append({
+            "train_session": session_dir.name,
+            "window_sec": window_sec_val,
+            "hop_sec": hop_sec_val,
+            "embedder": embedder_val,
+            "padding": padding_val,
             "config": f"{run['umap_dims']}D, mcs={run['mcs']}, eps={run['eps']}",
             "DetSim": detsim,
             "NMI": nmi,
@@ -203,27 +239,30 @@ def main():
             "Homogeneity": homog,
             "Aggregated": agg
         })
-        
-    print(f"\n\n{'='*85}")
-    print(f"=== GENERALIZATION REPORT: {train_dir.name} -> {eval_dir.name} ===")
-    print(f"{'='*85}")
-    print(f"{'Configuration':<25} | {'DetSim':<8} | {'NMI':<8} | {'ARI':<8} | {'Homog':<8} | {'Aggreg':<8}")
-    print("-" * 85)
-    
-    results.sort(key=lambda r: r["Aggregated"] if not np.isnan(r["Aggregated"]) else -2.0, reverse=True)
-    
-    for res in results:
-        print(f"{res['config']:<25} | {res['DetSim']:<8.4f} | {res['NMI']:<8.4f} | {res['ARI']:<8.4f} | {res['Homogeneity']:<8.4f} | {res['Aggregated']:<8.4f}")
 
-    # Save to CSV
-    report_csv = eval_dir / f"generalization_report_{train_dir.name}.csv"
+    # ---------------------------------------------------------------------------
+    # Print and save report
+    # ---------------------------------------------------------------------------
+    print(f"\n\n{'='*115}")
+    print(f"=== MASTER GENERALIZATION REPORT: {train_dir.name} -> {eval_dir.name} ===")
+    print(f"{'='*115}")
+    print(f"{'Session':<30} | {'Win/Hop/Pad':<20} | {'Config':<20} | {'DetSim':<6} | {'NMI':<6} | {'ARI':<6} | {'Homog':<6} | {'Aggreg':<6}")
+    print("-" * 115)
+    
+    master_results.sort(key=lambda r: r["Aggregated"] if not np.isnan(r["Aggregated"]) else -2.0, reverse=True)
+    
+    for res in master_results:
+        win_str = f"{res['window_sec']}/{res['hop_sec']} {res['padding'][:3]}"
+        print(f"{res['train_session']:<30} | {win_str:<20} | {res['config']:<20} | {res['DetSim']:<6.4f} | {res['NMI']:<6.4f} | {res['ARI']:<6.4f} | {res['Homogeneity']:<6.4f} | {res['Aggregated']:<6.4f}")
+
+    report_csv = eval_dir / f"master_generalization_report_{train_dir.name}.csv"
     with open(report_csv, "w", newline="") as f:
-        fieldnames = ["config", "DetSim", "NMI", "ARI", "Homogeneity", "Aggregated"]
+        fieldnames = ["train_session", "window_sec", "hop_sec", "embedder", "padding", "config", "DetSim", "NMI", "ARI", "Homogeneity", "Aggregated"]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(results)
+        writer.writerows(master_results)
         
-    print(f"\nReport saved to: {report_csv}")
+    print(f"\nMaster report saved to: {report_csv}")
 
 
 if __name__ == "__main__":
