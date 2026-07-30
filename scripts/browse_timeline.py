@@ -48,7 +48,23 @@ parser.add_argument("npz", type=Path)
 parser.add_argument("--segment-minutes", type=float, default=2.0)
 parser.add_argument("--audio", type=Path, default=None)
 parser.add_argument("--manual-labels", type=Path, default=None)
+parser.add_argument("--poster", action="store_true",
+                    help="Poster-friendly layout: shorter spectrogram, larger strip fonts.")
 args = parser.parse_args()
+
+# Layout / font sizes — bumped under --poster for screenshot use.
+if args.poster:
+    SPEC_HEIGHT  = 0.35
+    STRIP_HEIGHT = 0.13
+    STRIP_FS     = 13   # ylabel + legend on cluster/manual strips
+    BAR_TEXT_FS  = 11   # type letters drawn inside manual-label bars
+    TICK_FS      = 11
+else:
+    SPEC_HEIGHT  = 0.55
+    STRIP_HEIGHT = 0.08
+    STRIP_FS     = 7
+    BAR_TEXT_FS  = 6
+    TICK_FS      = 10
 
 # ---------------------------------------------------------------------------
 # Load npz
@@ -201,9 +217,13 @@ best_seg_homog  = int(np.argmax(seg_homog))
 fig = plt.figure(figsize=(20, 9 if manual_labels else 7))
 
 if manual_labels:
-    ax_spec = fig.add_axes([0.05, 0.34, 0.93, 0.55])
-    ax_time = fig.add_axes([0.05, 0.24, 0.93, 0.08])
-    ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.08])
+    # bottom-up: buttons at 0.02–0.09, manual strip, cluster strip, then spectrogram on top
+    manu_bottom = 0.14
+    time_bottom = manu_bottom + STRIP_HEIGHT + 0.03
+    spec_bottom = time_bottom + STRIP_HEIGHT + 0.03
+    ax_spec = fig.add_axes([0.05, spec_bottom, 0.93, SPEC_HEIGHT])
+    ax_time = fig.add_axes([0.05, time_bottom, 0.93, STRIP_HEIGHT])
+    ax_manu = fig.add_axes([0.05, manu_bottom, 0.93, STRIP_HEIGHT])
 else:
     ax_spec = fig.add_axes([0.05, 0.32, 0.93, 0.60])
     ax_time = fig.add_axes([0.05, 0.20, 0.93, 0.10])
@@ -287,12 +307,12 @@ def draw(idx):
     ax_time.set_xlim(t_min, t_max)
     ax_time.set_ylim(-0.5, 0.5)
     ax_time.set_yticks([])
-    ax_time.set_ylabel("clusters", fontsize=7)
+    ax_time.set_ylabel("clusters", fontsize=STRIP_FS)
     ax_time.tick_params(labelbottom=False)
 
     handles, lbls = ax_time.get_legend_handles_labels()
     ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
-                   ncol=min(n_clusters + 1, 12), fontsize=7, framealpha=0.8, borderaxespad=0)
+                   ncol=min(n_clusters + 1, 12), fontsize=STRIP_FS, framealpha=0.8, borderaxespad=0)
 
     # --- manual labels strip --------------------------------------------------
     if ax_manu is not None:
@@ -315,18 +335,19 @@ def draw(idx):
             # label text inside bar if wide enough
             mid = (begin_min + end_min) / 2
             if t_min <= mid <= t_max:
-                ax_manu.text(mid, 0, ltype, ha="center", va="center", fontsize=6, clip_on=True)
+                ax_manu.text(mid, 0, ltype, ha="center", va="center", fontsize=BAR_TEXT_FS, clip_on=True)
         ax_manu.set_xlim(t_min, t_max)
         ax_manu.set_ylim(-0.5, 0.5)
         ax_manu.set_yticks([])
-        ax_manu.set_ylabel("manual", fontsize=7)
+        ax_manu.set_ylabel("manual", fontsize=STRIP_FS)
         ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-        ax_manu.set_xlabel("Time (h:mm:ss)")
+        ax_manu.set_xlabel("Time (h:mm:ss)", fontsize=TICK_FS)
+        ax_manu.tick_params(labelsize=TICK_FS)
 
         mhandles, mlbls = ax_manu.get_legend_handles_labels()
         if mhandles:
             ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
-                           ncol=min(len(manual_colours), 15), fontsize=7, framealpha=0.8, borderaxespad=0)
+                           ncol=min(len(manual_colours), 15), fontsize=STRIP_FS, framealpha=0.8, borderaxespad=0)
     else:
         ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
         ax_time.set_xlabel("Time (h:mm:ss)")
