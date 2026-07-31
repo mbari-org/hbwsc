@@ -14,7 +14,7 @@ import soundfile as sf
 class Window:
     """A single audio window with metadata."""
 
-    audio: np.ndarray  # shape (n_samples,), float32, mono
+    audio: np.ndarray | None  # shape (n_samples,), float32, mono; set to None after embedding
     sample_rate: int
     source_file: Path
     start_sec: float
