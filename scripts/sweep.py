@@ -1,4 +1,4 @@
-"""Sweep UMAP dimensionality and HDBSCAN min_cluster_size, reporting clustering metrics.
+"""Sweep UMAP dimensionality, HDBSCAN min_cluster_size, and min_samples, reporting clustering metrics.
 
 Loads AVES embeddings from a cache file (no model inference) and evaluates every
 combination of UMAP cluster dimensions and min_cluster_size.
@@ -13,6 +13,7 @@ Usage:
 Options:
     --dims     Comma-separated UMAP cluster dimensions to try  (default: 2,5,10,15,20,30)
     --mcs      Comma-separated min_cluster_size values to try  (default: 50,100,200)
+    --min-samples-pct  Comma-separated percentages of mcs to use as min_samples (default: 100)
     --neighbors  UMAP n_neighbors                              (default: 15)
     --out      Path to save results table as CSV               (optional)
     --workers  Number of parallel HDBSCAN workers              (default: 2, ignored on GPU)
@@ -97,14 +98,14 @@ _HDBSCAN = _hdbscan_lib.HDBSCAN
 # HDBSCAN runner
 # ---------------------------------------------------------------------------
 
-def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, eps: float,
-                         alpha: float, t_umap: float, manual_window=None) -> dict:
+def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_samples: int,
+                         eps: float, alpha: float, t_umap: float, manual_window=None) -> dict:
     """Run one HDBSCAN config on the given reduced array."""
     t0 = time.perf_counter()
 
     hdbscan_kwargs = dict(
         min_cluster_size=mcs,
-        min_samples=mcs,
+        min_samples=min_samples,
         metric="euclidean",
         cluster_selection_method="eom",
         cluster_selection_epsilon=eps,
@@ -158,6 +159,7 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, eps: floa
     ret = {
         "umap_dims": umap_dims,
         "mcs": mcs,
+        "min_samples": min_samples,
         "eps": eps,
         "n_clusters": n_clusters,
         "noise_pct": round(noise_pct, 1),
@@ -180,12 +182,13 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, eps: floa
 
 
 def _run_hdbscan_from_shm(shm_name: str, shape: tuple, dtype_str: str,
-                           umap_dims: int, mcs: int, eps: float, alpha: float,
+                           umap_dims: int, mcs: int, min_samples: int,
+                           eps: float, alpha: float,
                            t_umap: float, manual_window=None) -> dict:
     """CPU multiprocessing wrapper: reads reduced data from shared memory."""
     shm = SharedMemory(name=shm_name)
     reduced = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
-    result = _run_single_hdbscan(reduced, umap_dims, mcs, eps, alpha, t_umap, manual_window)
+    result = _run_single_hdbscan(reduced, umap_dims, mcs, min_samples, eps, alpha, t_umap, manual_window)
     shm.close()
     return result
 
@@ -210,6 +213,8 @@ def main() -> None:
         "--workers", type=int, default=2, help="Parallel HDBSCAN workers (CPU only; ignored on GPU; default: 2)"
     )
     parser.add_argument("--epsilons", type=str, default="0.0", help="Comma-separated HDBSCAN epsilons")
+    parser.add_argument("--min-samples-pct", type=str, default="100",
+                        help="Comma-separated min_samples as percentage of mcs (default: 100)")
     args = parser.parse_args()
 
     embeddings = np.load(args.embeddings)
@@ -219,14 +224,16 @@ def main() -> None:
     dims_list = [int(x) for x in args.dims.split(",")]
     mcs_list = [int(x) for x in args.mcs.split(",")]
     eps_list = [float(x) for x in args.epsilons.split(",")]
+    min_samples_pct_list = [int(x) for x in args.min_samples_pct.split(",")]
     n_neighbors = args.neighbors
-    n_hdbscan_combos = len(mcs_list) * len(eps_list)
+    n_hdbscan_combos = len(mcs_list) * len(eps_list) * len(min_samples_pct_list)
     n_total = len(dims_list) * n_hdbscan_combos
 
     n_workers = min(args.workers, n_hdbscan_combos)
 
     print(f"UMAP dims:         {dims_list}")
     print(f"min_cluster_size:  {mcs_list}")
+    print(f"min_samples_pct:   {min_samples_pct_list}")
     print(f"epsilons:          {eps_list}")
     print(f"UMAP n_neighbors:  {n_neighbors}")
     print(f"Total configs:     {n_total}  ({len(dims_list)} UMAP fits × {n_hdbscan_combos} HDBSCAN combos)")
@@ -247,6 +254,7 @@ def main() -> None:
     header = [
         "umap_dims",
         "mcs",
+        "min_samples",
         "eps",
         "n_clusters",
         "noise_pct",
@@ -258,7 +266,7 @@ def main() -> None:
         "t_hdbscan_s",
         "t_metrics_s",
     ]
-    col_w = [9, 5, 5, 10, 10, 8, 10, 7, 7, 10, 12, 12]
+    col_w = [9, 5, 11, 5, 10, 10, 8, 10, 7, 7, 10, 12, 12]
 
     if manual_window is not None:
         header.extend(["detsim", "nmi", "ari", "homog"])
@@ -311,9 +319,10 @@ def main() -> None:
                 futures = {
                     executor.submit(
                         _run_hdbscan_from_shm, shm.name, red_shape, red_dtype.str,
-                        umap_dims, mcs, eps, args.alpha, t_umap, manual_window,
-                    ): (umap_dims, mcs, eps)
-                    for mcs, eps in product(mcs_list, eps_list)
+                        umap_dims, mcs, max(1, int(mcs * pct / 100)),
+                        eps, args.alpha, t_umap, manual_window,
+                    ): (umap_dims, mcs, pct, eps)
+                    for mcs, pct, eps in product(mcs_list, min_samples_pct_list, eps_list)
                 }
                 for f in as_completed(futures):
                     row = f.result()
@@ -323,7 +332,7 @@ def main() -> None:
                 shm.close()
                 shm.unlink()
 
-    rows.sort(key=lambda r: (r["umap_dims"], r["mcs"]))
+    rows.sort(key=lambda r: (r["umap_dims"], r["mcs"], r["min_samples"]))
 
     if args.out:
         with open(args.out, "w", newline="") as f:

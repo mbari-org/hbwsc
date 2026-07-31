@@ -18,17 +18,36 @@ def main():
         
     all_dfs = []
     
-    # regex to parse: win0.25_hop0.25_perch_repeat  or  win0.5_hop0.25_perch (legacy)
-    pattern = re.compile(r"win([\d\.]+)_hop([\d\.]+)_([a-zA-Z0-9]+)(?:_(repeat|zero))?")
-    
     for child in sweep_out_dir.iterdir():
         if child.is_dir():
-            match = pattern.match(child.name)
-            if match:
-                window_sec = float(match.group(1))
-                hop_sec = float(match.group(2))
-                embedder_type = match.group(3)
-                perch_padding = match.group(4) or "repeat"  # default for legacy dirs
+            parts = child.name.split('_')
+            
+            # Check if this looks like a sweep directory: winX_hopY_embedder[_padding]
+            if len(parts) < 3 or not parts[0].startswith('win') or not parts[1].startswith('hop'):
+                continue
+                
+            try:
+                window_sec = float(parts[0].replace('win', ''))
+                hop_str = parts[1].replace('hop', '')
+                
+                is_pct = hop_str.endswith('pct')
+                if is_pct:
+                    hop_raw = float(hop_str.replace('pct', ''))
+                else:
+                    hop_raw = float(hop_str)
+                    
+                embedder_type = parts[2]
+                perch_padding = parts[3] if len(parts) > 3 else "repeat"
+                
+                if is_pct:
+                    hop_pct = int(hop_raw)
+                    hop_sec = round(window_sec * hop_pct / 100, 4)
+                else:
+                    hop_sec = hop_raw
+                    hop_pct = int(round(hop_sec / window_sec * 100))
+            except ValueError:
+                # If conversion to float fails, it's not a valid sweep directory
+                continue
                 
                 # find the csv inside
                 sweep_dir = child / "sweep"
@@ -48,7 +67,8 @@ def main():
                     df.insert(0, "embedder_type", embedder_type)
                     df.insert(1, "window_sec", window_sec)
                     df.insert(2, "hop_sec", hop_sec)
-                    df.insert(3, "perch_padding", perch_padding)
+                    df.insert(3, "hop_pct", hop_pct)
+                    df.insert(4, "perch_padding", perch_padding)
                     all_dfs.append(df)
                 except Exception as e:
                     print(f"Error reading {csv_path}: {e}")

@@ -74,6 +74,13 @@ window_sec: 0.5
 hop_sec: 0.25
 sample_rate: 16000
 
+# Embedding sweep (uncomment to enable)
+# embedding_sweep:
+#   window_sec: [2.0, 2.5, 3.0]
+#   hop_pct: [25, 50, 75]        # hop as percentage of window_sec
+#   embedder_type: ["perch"]
+#   perch_padding: ["repeat"]
+
 # AVES embedding
 batch_size: 16               # increase on GPU (e.g. 64, 128)
 perch_padding: repeat        # 'repeat' (tile audio) or 'zero' (zero-fill) for Perch
@@ -91,6 +98,7 @@ hdbscan_epsilon: 0.0         # threshold below which clusters are merged
 # Hyperparameter sweep
 sweep_dims: "2,5,10,15,20,30"
 sweep_mcs: "50,100,200"
+sweep_min_samples_pct: "100"    # percentage of mcs to use as min_samples (e.g. "25,50,100")
 sweep_workers: 2
 
 # Timeline plot segmentation (minutes per segment; omit or set to 0 for a single full plot)
@@ -324,6 +332,8 @@ def cmd_sweep(session_dir: Path, params: dict):
         str(alpha),
         "--workers",
         str(n_workers),
+        "--min-samples-pct",
+        str(params.get("sweep_min_samples_pct", "100")),
         "--out",
         str(sweep_out / csv_name),
     ]
@@ -351,17 +361,37 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
     sweep_out_dir = session_dir / "sweep_embed"
     sweep_out_dir.mkdir(exist_ok=True)
 
-    for window_sec, hop_sec, embedder_type, perch_padding in product(
+    # hop_pct: hop as percentage of window_sec (preferred)
+    # hop_sec: deprecated absolute hop values (fallback for old configs)
+    hop_pct_list = sweep_config.get("hop_pct")
+    use_hop_pct = hop_pct_list is not None
+    if not use_hop_pct:
+        hop_sec_list = sweep_config.get("hop_sec")
+        if hop_sec_list is None:
+            print("ERROR: embedding_sweep must have 'hop_pct' (or deprecated 'hop_sec').")
+            return
+        print("WARNING: 'hop_sec' in embedding_sweep is deprecated. Use 'hop_pct' instead.")
+
+    hop_values = hop_pct_list if use_hop_pct else hop_sec_list
+
+    for window_sec, hop_val, embedder_type, perch_padding in product(
         sweep_config.get("window_sec"),
-        sweep_config.get("hop_sec"),
+        hop_values,
         sweep_config.get("embedder_type"),
         sweep_config.get("perch_padding", ["repeat"]),
     ):
-        # skip if the hop and window combination makes the sweep skip audio
-        if hop_sec > window_sec:
-            continue
+        # Compute actual hop_sec from percentage, or use absolute value directly
+        if use_hop_pct:
+            hop_sec = round(window_sec * hop_val / 100, 4)
+        else:
+            hop_sec = hop_val
+            if hop_sec > window_sec:
+                continue
         # make sub directory for each sweep session
-        sweep_sesh_name = f"win{window_sec}_hop{hop_sec}_{embedder_type}_{perch_padding}"
+        if use_hop_pct:
+            sweep_sesh_name = f"win{window_sec}_hop{hop_val}pct_{embedder_type}_{perch_padding}"
+        else:
+            sweep_sesh_name = f"win{window_sec}_hop{hop_sec}_{embedder_type}_{perch_padding}"
         sweep_sesh_dir = sweep_out_dir / sweep_sesh_name
         sweep_sesh_dir.mkdir(exist_ok=True)
 

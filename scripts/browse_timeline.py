@@ -96,23 +96,23 @@ colours[-1] = (0.75, 0.75, 0.75, 0.4)
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0
 x_minutes = start_secs / 60.0
 
-# --- Density data (5-second bins by default) -------------------------------
-window_min = args.density_window_sec / 60.0
-dens_bins = np.arange(x_minutes.min(), x_minutes.max() + window_min, window_min)
-dens_centers = dens_bins[:-1] + window_min / 2.0
-dens_counts = {lbl: np.zeros(len(dens_bins) - 1) for lbl in unique_labels}
-dens_indices = np.digitize(x_minutes, dens_bins) - 1
-for i, lbl in zip(dens_indices, labels):
-    if 0 <= i < len(dens_bins) - 1:
-        dens_counts[lbl][i] += 1
-dens_total = np.sum([dens_counts[lbl] for lbl in unique_labels], axis=0)
-dens_total[dens_total == 0] = 1
-dens_data = [dens_counts[lbl] / dens_total for lbl in unique_labels]
-dens_colors = [colours[lbl] for lbl in unique_labels]
+# # --- Density data (5-second bins by default) -------------------------------
+# window_min = args.density_window_sec / 60.0
+# dens_bins = np.arange(x_minutes.min(), x_minutes.max() + window_min, window_min)
+# dens_centers = dens_bins[:-1] + window_min / 2.0
+# dens_counts = {lbl: np.zeros(len(dens_bins) - 1) for lbl in unique_labels}
+# dens_indices = np.digitize(x_minutes, dens_bins) - 1
+# for i, lbl in zip(dens_indices, labels):
+#     if 0 <= i < len(dens_bins) - 1:
+#         dens_counts[lbl][i] += 1
+# dens_total = np.sum([dens_counts[lbl] for lbl in unique_labels], axis=0)
+# dens_total[dens_total == 0] = 1
+# dens_data = [dens_counts[lbl] / dens_total for lbl in unique_labels]
+# dens_colors = [colours[lbl] for lbl in unique_labels]
 
-# Create step-function arrays for stackplot to draw flat-topped bins
-dens_x_step = np.repeat(dens_bins, 2)[1:-1]
-dens_y_step = [np.repeat(d, 2) for d in dens_data]
+# # Create step-function arrays for stackplot to draw flat-topped bins
+# dens_x_step = np.repeat(dens_bins, 2)[1:-1]
+# dens_y_step = [np.repeat(d, 2) for d in dens_data]
 
 # ---------------------------------------------------------------------------
 # Load manual labels (Raven format)
@@ -273,7 +273,7 @@ def fmt_hm(minutes):
     return f"{h}:{m:02d}:{s:02d}"
 
 
-def render_segment(idx, ax_spec, ax_time, ax_dens, ax_manu):
+def render_segment(idx, ax_spec, ax_time, ax_manu):
     """Render segment *idx* onto the given axes (clears them first)."""
     t_min = idx * seg_minutes
     t_max = min(t_min + seg_minutes, total_minutes)
@@ -396,21 +396,21 @@ def render_segment(idx, ax_spec, ax_time, ax_dens, ax_manu):
     ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
                    ncol=min(n_clusters + 1, 12), fontsize=7, framealpha=0.8, borderaxespad=0)
 
-    # --- density strip --------------------------------------------------------
-    ax_dens.cla()
-    mask_seg_dens = (dens_x_step >= t_min - window_min) & (dens_x_step <= t_max + window_min)
-    if mask_seg_dens.any():
-        seg_x = dens_x_step[mask_seg_dens]
-        seg_data = [d[mask_seg_dens] for d in dens_y_step]
-        ax_dens.stackplot(seg_x, *seg_data, colors=dens_colors, linewidth=0)
-    ax_dens.set_xlim(t_min, t_max)
-    ax_dens.set_ylim(0, 1.0)
-    ax_dens.set_yticks([])
-    ax_dens.set_ylabel("density", fontsize=7)
+    # # --- density strip --------------------------------------------------------
+    # ax_dens.cla()
+    # mask_seg_dens = (dens_x_step >= t_min - window_min) & (dens_x_step <= t_max + window_min)
+    # if mask_seg_dens.any():
+    #     seg_x = dens_x_step[mask_seg_dens]
+    #     seg_data = [d[mask_seg_dens] for d in dens_y_step]
+    #     ax_dens.stackplot(seg_x, *seg_data, colors=dens_colors, linewidth=0)
+    # ax_dens.set_xlim(t_min, t_max)
+    # ax_dens.set_ylim(0, 1.0)
+    # ax_dens.set_yticks([])
+    # ax_dens.set_ylabel("density", fontsize=7)
 
-    ax_dens.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-    ax_dens.tick_params(labelbottom=True)
-    ax_dens.set_xlabel("Time (h:mm:ss)")
+    # ax_dens.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
+    # ax_dens.tick_params(labelbottom=True)
+    # ax_dens.set_xlabel("Time (h:mm:ss)")
 
     # --- manual labels strip --------------------------------------------------
     if ax_manu is not None:
@@ -438,12 +438,20 @@ def render_segment(idx, ax_spec, ax_time, ax_dens, ax_manu):
         ax_manu.set_ylim(-0.5, 0.5)
         ax_manu.set_yticks([])
         ax_manu.set_ylabel("manual", fontsize=7)
-        ax_manu.tick_params(labelbottom=False)
+        
+        ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
+        ax_manu.tick_params(labelbottom=True)
+        ax_manu.set_xlabel("Time (h:mm:ss)")
 
         mhandles, mlbls = ax_manu.get_legend_handles_labels()
         if mhandles:
             ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
                            ncol=min(len(manual_colours), 15), fontsize=7, framealpha=0.8, borderaxespad=0)
+                           
+    if ax_manu is None:
+        ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
+        ax_time.tick_params(labelbottom=True)
+        ax_time.set_xlabel("Time (h:mm:ss)")
 
 
 # export as a pdf
@@ -463,13 +471,13 @@ if args.export_pdf is not None:
         for si in range(n_segments):
             has_manual = manual_labels is not None
             fig_exp, axes = plt.subplots(
-                nrows=3 + int(has_manual), ncols=1,
+                nrows=2 + int(has_manual), ncols=1,
                 figsize=(20, 6 if has_manual else 5),
-                gridspec_kw={"height_ratios": [5, 1, 1] + ([1] if has_manual else [])},
+                gridspec_kw={"height_ratios": [3, 1] + ([1] if has_manual else [])},
                 sharex=True,
             )
-            render_segment(si, axes[0], axes[1], axes[2],
-                           axes[3] if has_manual else None)
+            render_segment(si, axes[0], axes[1],
+                           axes[2] if has_manual else None)
             fig_exp.subplots_adjust(left=0.04, right=0.98, top=0.92, bottom=0.08, hspace=0.15)
             pdf.savefig(fig_exp, dpi=150)
             plt.close(fig_exp)
@@ -482,14 +490,14 @@ if args.export_pdf is not None:
 fig = plt.figure(figsize=(20, 10 if manual_labels else 8))
 
 if manual_labels:
-    ax_spec = fig.add_axes([0.05, 0.44, 0.93, 0.45])
-    ax_time = fig.add_axes([0.05, 0.34, 0.93, 0.08])
-    ax_manu = fig.add_axes([0.05, 0.24, 0.93, 0.08])
-    ax_dens = fig.add_axes([0.05, 0.14, 0.93, 0.08])
+    ax_spec = fig.add_axes([0.05, 0.50, 0.93, 0.39])
+    ax_time = fig.add_axes([0.05, 0.32, 0.93, 0.16])
+    ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.16])
+    ax_dens = None
 else:
-    ax_spec = fig.add_axes([0.05, 0.38, 0.93, 0.54])
-    ax_time = fig.add_axes([0.05, 0.26, 0.93, 0.10])
-    ax_dens = fig.add_axes([0.05, 0.14, 0.93, 0.10])
+    ax_spec = fig.add_axes([0.05, 0.41, 0.93, 0.51])
+    ax_time = fig.add_axes([0.05, 0.14, 0.93, 0.25])
+    ax_dens = None
     ax_manu = None
 
 bw = 0.05  # button width
@@ -521,7 +529,7 @@ if manual_labels:
 
 # interactive wrapper
 def draw(idx):
-    render_segment(idx, ax_spec, ax_time, ax_dens, ax_manu)
+    render_segment(idx, ax_spec, ax_time, ax_manu)
 
     # Full synchronous draw, then snapshot background (vline excluded via animated=True)
     fig.canvas.draw()
