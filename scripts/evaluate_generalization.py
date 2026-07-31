@@ -2,7 +2,7 @@
 
 This orchestrator script runs a full pipeline:
 1. Reads the combined sweep CSV (from aggregate-sweep-embed) or a single session's sweep CSV.
-2. Filters to the top configurations based on DBCV, cluster count, and noise constraints.
+2. Filters to configurations based on cluster count and noise constraints (optionally limited to top-N by DBCV).
 3. Generates the cluster assignments (pseudo-labels) for those top configs on the train session.
 4. Trains a classifier on those pseudo-labels.
 5. Uses the classifier to predict labels for an evaluation session.
@@ -12,10 +12,12 @@ Usage:
     uv run python scripts/evaluate_generalization.py <train_session> <eval_session> [options]
 
 Options:
-    --top-x          Number of configurations to evaluate (default: 5)
     --min-clusters   Minimum number of clusters required (default: 15)
     --max-clusters   Maximum number of clusters allowed (default: 30)
     --max-noise      Maximum allowed noise percentage (default: 40.0)
+    --min-dbcv       Minimum DBCV score to include (default: 0.2)
+    --top-n-dbcv     Optional: limit to top N configs by DBCV (default: run all passing filters)
+    --allow-no-overlap  Include configs where window_sec == hop_sec (dropped by default)
     --drop-noise     Drop noise points (-1) when training the classifier
     --eval-audio     Auto-initialize eval session with this audio file
     --eval-labels    Auto-initialize eval session with these Raven labels
@@ -49,10 +51,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("train_session", type=Path, help="Path to the training session directory")
     parser.add_argument("eval_session", type=Path, help="Path to the evaluation session directory")
-    parser.add_argument("--top-x", type=int, default=5, help="Number of configurations to evaluate (default: 5)")
     parser.add_argument("--min-clusters", type=int, default=15, help="Minimum number of clusters (default: 15)")
     parser.add_argument("--max-clusters", type=int, default=30, help="Maximum number of clusters (default: 30)")
     parser.add_argument("--max-noise", type=float, default=40.0, help="Maximum allowed noise percentage (default: 40.0)")
+    parser.add_argument("--min-dbcv", type=float, default=0.2, help="Minimum DBCV score to include (default: 0.2)")
+    parser.add_argument("--top-n-dbcv", type=int, default=None, help="Optional: limit to top N configs by DBCV (default: run all passing filters)")
+    parser.add_argument("--allow-no-overlap", action="store_true", help="Include configs where window_sec == hop_sec (dropped by default)")
     parser.add_argument("--drop-noise", action="store_true", help="Drop noise points when training classifier")
     parser.add_argument("--eval-audio", type=Path, default=None, help="Auto-initialize eval session with this audio file")
     parser.add_argument("--eval-labels", type=Path, default=None, help="Auto-initialize eval session with these Raven labels")
@@ -110,18 +114,25 @@ def main():
             # Handle any NaN dbcv values
             dbcv = float(row["dbcv"]) if row["dbcv"] not in ("nan", "NaN") else -2.0
             
-            if args.min_clusters <= n_clusters <= args.max_clusters and noise_pct <= args.max_noise:
+            if not args.allow_no_overlap and float(row["window_sec"]) == float(row["hop_sec"]):
+                continue
+            if args.min_clusters <= n_clusters <= args.max_clusters and noise_pct <= args.max_noise and dbcv >= args.min_dbcv:
                 row["dbcv_val"] = dbcv  # cache for sorting
                 valid_runs.append(row)
                 
     if not valid_runs:
-        print(f"No configurations matched the criteria: {args.min_clusters} <= n_clusters <= {args.max_clusters} AND noise <= {args.max_noise}%")
+        print(f"No configurations matched the criteria: {args.min_clusters} <= n_clusters <= {args.max_clusters} AND noise <= {args.max_noise}% AND dbcv >= {args.min_dbcv}")
         sys.exit(1)
         
     valid_runs.sort(key=lambda r: r["dbcv_val"], reverse=True)
-    top_runs = valid_runs[:args.top_x]
     
-    print(f"\nTop {len(top_runs)} configurations passing heuristics:")
+    if args.top_n_dbcv is not None:
+        top_runs = valid_runs[:args.top_n_dbcv]
+        print(f"\nTop {len(top_runs)} configurations by DBCV (out of {len(valid_runs)} passing filters):")
+    else:
+        top_runs = valid_runs
+        print(f"\nAll {len(top_runs)} configurations passing filters:")
+    
     for i, r in enumerate(top_runs):
         prefix = f"win={r['window_sec']}, hop={r['hop_sec']}, {r['embedder_type']}, {r['perch_padding']} | "
         print(f" {i+1}. {prefix}{r['umap_dims']}D, mcs={r['mcs']}, eps={r['eps']} | n={r['n_clusters']}, noise={r['noise_pct']}%, dbcv={r['dbcv']}")
