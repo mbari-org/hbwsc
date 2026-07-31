@@ -1,4 +1,4 @@
-"""Takes a new session dirctory and runs a specified trained classifier (pkl file). Gets embeddings from audio file, and outputs predictions in a new npz file.
+"""Takes a new session directory and runs a specified trained classifier (pkl file). Gets embeddings from audio file, and outputs predictions in a new npz file.
 
 Usage:
     uv run python scripts/predict.py <parameters.yml> <pkl> [out.npz]
@@ -8,8 +8,12 @@ Arguments:
     parameters.yml     Target session's parameters
     pkl                Path to a model.pkl file produced by train_classifier.
     out.npz            Output model path (default: <target_session>/predictions/<pkl-stem>_predictions.npz).
+    --embeddings-cache-dir  Directory to look up / save embeddings by config key
+                            (e.g. PERCH_SWEEP/sweep_embed/).  Keyed by
+                            win{w}_hop{h}_{embedder}_{padding}/embeddings.npy.
     [FUTURE] --embedding  type of embedding (Perch vs AVES).
 """
+import argparse
 import sys
 import joblib
 import yaml
@@ -22,16 +26,17 @@ from hbws_clustering.clustering import HdbscanClusterer  # Forces CUDA libraries
 
 # --- args ---------------------------------------------------------------------
 
-args = sys.argv[1:]
-if not args:
-    print(__doc__)
-    sys.exit(1)
+parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+parser.add_argument("parameters", type=Path, help="Path to a parameters.yml file")
+parser.add_argument("pkl", type=Path, help="Path to a trained model .pkl file")
+parser.add_argument("out_npz", type=Path, nargs="?", default=None, help="Output predictions .npz path")
+parser.add_argument("--embeddings-cache-dir", type=Path, default=None,
+                    help="Directory of pre-computed embeddings keyed by win/hop/embedder/padding subdirs")
+args = parser.parse_args()
 
-parameters_path = Path(args[0])
-
-pkl_path = Path(args[1])
-
-npz_out = Path(args[2]) if len(args) > 2 and args[2] else parameters_path.parent / "predictions" / f"{pkl_path.parts[-4]}_{pkl_path.parts[-3]}.npz"
+parameters_path = args.parameters
+pkl_path = args.pkl
+npz_out = args.out_npz if args.out_npz else parameters_path.parent / "predictions" / f"{pkl_path.parts[-4]}_{pkl_path.parts[-3]}.npz"
 
 if npz_out.exists():
     print(f"Labels {npz_out} already exist. Skipping inference.")
@@ -62,16 +67,40 @@ if not windows:
 
 # --- embed and classify ---------------------------------------------------------------------
 
-embeddings_file = parameters_path.parent / "embeddings.npy"
-embeddings = None
-if embeddings_file.exists():
-    print(f"Loading existing embeddings from {embeddings_file}...")
-    loaded_emb = np.load(embeddings_file)
-    if len(loaded_emb) == len(windows):
-        embeddings = loaded_emb
-    else:
-        print(f"WARNING: existing embeddings shape {loaded_emb.shape} does not match extracted windows ({len(windows)}). Re-embedding...")
+def _cache_key(params: dict) -> str:
+    """Build the sweep_embed naming convention key from parameters."""
+    w = params.get("window_sec", 0.5)
+    h = params.get("hop_sec", 0.25)
+    emb = params.get("embedder_type", "aves")
+    pad = params.get("perch_padding", "repeat")
+    return f"win{w}_hop{h}_{emb}_{pad}"
 
+
+def _try_load(path: Path, n_windows: int) -> np.ndarray | None:
+    """Load embeddings from path if it exists and shape matches."""
+    if not path.exists():
+        return None
+    loaded = np.load(path)
+    if len(loaded) == n_windows:
+        print(f"  Loaded embeddings from {path}")
+        return loaded
+    print(f"  WARNING: {path} has {loaded.shape[0]} rows but expected {n_windows}. Skipping.")
+    return None
+
+
+embeddings = None
+
+# Look for local embeddings
+if embeddings is None:
+    local_path = parameters_path.parent / "embeddings.npy"
+    embeddings = _try_load(local_path, len(windows))
+
+# Try the shared embeddings cache dir (e.g. PERCH_SWEEP/sweep_embed/)
+if args.embeddings_cache_dir is not None:
+    cache_path = args.embeddings_cache_dir / _cache_key(params) / "embeddings.npy"
+    embeddings = _try_load(cache_path, len(windows))
+
+# If no embeddings found, compute embeddings
 if embeddings is None:
     print("Computing embeddings...")
     embedder_type = params.get('embedder_type', 'aves')
@@ -81,8 +110,17 @@ if embeddings is None:
         embedder = AvesEmbedder(batch_size=params.get('batch_size', 16))
     embeddings = embedder.embed_windows(windows)
     
-    print(f"Saving computed embeddings to {embeddings_file}...")
-    np.save(embeddings_file, embeddings)
+    # Save to local path
+    local_path = parameters_path.parent / "embeddings.npy"
+    print(f"Saving computed embeddings to {local_path}...")
+    np.save(local_path, embeddings)
+    
+    # Also save to cache dir for future reuse
+    if args.embeddings_cache_dir is not None:
+        cache_path = args.embeddings_cache_dir / _cache_key(params) / "embeddings.npy"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(cache_path, embeddings)
+        print(f"Saved to embeddings cache: {cache_path}")
 
 labels = model.predict(embeddings)
 

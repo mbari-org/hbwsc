@@ -21,6 +21,7 @@ Options:
     --drop-noise     Drop noise points (-1) when training the classifier
     --eval-audio     Auto-initialize eval session with this audio file
     --eval-labels    Auto-initialize eval session with these Raven labels
+    --eval-embeddings-dir  Directory of pre-computed eval embeddings (e.g. PERCH_SWEEP/sweep_embed/)
 """
 
 import argparse
@@ -60,6 +61,8 @@ def main():
     parser.add_argument("--drop-noise", action="store_true", help="Drop noise points when training classifier")
     parser.add_argument("--eval-audio", type=Path, default=None, help="Auto-initialize eval session with this audio file")
     parser.add_argument("--eval-labels", type=Path, default=None, help="Auto-initialize eval session with these Raven labels")
+    parser.add_argument("--eval-embeddings-dir", type=Path, default=None,
+                        help="Directory of pre-computed eval embeddings (e.g. PERCH_SWEEP/sweep_embed/)")
     args = parser.parse_args()
 
     train_dir = args.train_session.resolve()
@@ -209,6 +212,8 @@ def main():
         if not pred_npz.exists():
             print(f"Running inference on evaluation session (inheriting {session_dir.name} windowing)...")
             cmd = ["uv", "run", "python", "scripts/predict.py", str(inherited_yml_path), str(model_pkl), str(pred_npz)]
+            if args.eval_embeddings_dir:
+                cmd.extend(["--embeddings-cache-dir", str(args.eval_embeddings_dir)])
             run_subprocess(cmd)
         else:
             print(f"Found existing predictions: {pred_npz}")
