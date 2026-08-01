@@ -163,8 +163,16 @@ class PerchEmbedder:
         import tensorflow as tf
         import tensorflow_hub as hub
 
+        gpus = tf.config.list_physical_devices("GPU")
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+            except RuntimeError:
+                pass
+            
         if self.model_url == "auto":
-            self.model_url = PERCH_GPU if tf.config.list_physical_devices("GPU") else PERCH_CPU
+            self.model_url = PERCH_GPU if gpus else PERCH_CPU
         self._model = hub.load(self.model_url)
 
     def embed_windows(self, windows: Sequence[Window]) -> np.ndarray:

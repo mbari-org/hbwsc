@@ -13,7 +13,7 @@ try:
     from cuml.cluster import HDBSCAN as _HDBSCAN
     import rmm
 
-    rmm.reinitialize(pool_allocator=True, managed_memory=True)
+    rmm.reinitialize(pool_allocator=True)
 
     _BACKEND = "cuml"
 except ImportError:
