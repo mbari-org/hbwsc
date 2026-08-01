@@ -79,6 +79,12 @@ def main():
         
     combined_df = pd.concat(all_dfs, ignore_index=True)
     
+    if "min_samples_pct" not in combined_df.columns and "min_samples" in combined_df.columns and "mcs" in combined_df.columns:
+        combined_df["min_samples_pct"] = (combined_df["min_samples"] / combined_df["mcs"] * 100).round().astype(int)
+        
+    if "min_samples" in combined_df.columns:
+        combined_df.drop(columns=["min_samples"], inplace=True)
+
     # Sort by the mean of nmi,ari,homog
     sort_cols = []
     for col in ["nmi", "ari", "homog"]:

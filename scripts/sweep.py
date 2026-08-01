@@ -98,7 +98,7 @@ _HDBSCAN = _hdbscan_lib.HDBSCAN
 # HDBSCAN runner
 # ---------------------------------------------------------------------------
 
-def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_samples: int,
+def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_samples: int, min_samples_pct: int,
                          eps: float, alpha: float, t_umap: float, manual_window=None) -> dict:
     """Run one HDBSCAN config on the given reduced array."""
     t0 = time.perf_counter()
@@ -160,6 +160,7 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_sampl
         "umap_dims": umap_dims,
         "mcs": mcs,
         "min_samples": min_samples,
+        "min_samples_pct": min_samples_pct,
         "eps": eps,
         "n_clusters": n_clusters,
         "noise_pct": round(noise_pct, 1),
@@ -182,13 +183,13 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_sampl
 
 
 def _run_hdbscan_from_shm(shm_name: str, shape: tuple, dtype_str: str,
-                           umap_dims: int, mcs: int, min_samples: int,
+                           umap_dims: int, mcs: int, min_samples: int, min_samples_pct: int,
                            eps: float, alpha: float,
                            t_umap: float, manual_window=None) -> dict:
     """CPU multiprocessing wrapper: reads reduced data from shared memory."""
     shm = SharedMemory(name=shm_name)
     reduced = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
-    result = _run_single_hdbscan(reduced, umap_dims, mcs, min_samples, eps, alpha, t_umap, manual_window)
+    result = _run_single_hdbscan(reduced, umap_dims, mcs, min_samples, min_samples_pct, eps, alpha, t_umap, manual_window)
     shm.close()
     return result
 
@@ -255,6 +256,7 @@ def main() -> None:
         "umap_dims",
         "mcs",
         "min_samples",
+        "min_samples_pct",
         "eps",
         "n_clusters",
         "noise_pct",
@@ -266,7 +268,7 @@ def main() -> None:
         "t_hdbscan_s",
         "t_metrics_s",
     ]
-    col_w = [9, 5, 11, 5, 10, 10, 8, 10, 7, 7, 10, 12, 12]
+    col_w = [9, 5, 11, 15, 5, 10, 10, 8, 10, 7, 7, 10, 12, 12]
 
     if manual_window is not None:
         header.extend(["detsim", "nmi", "ari", "homog"])
@@ -319,7 +321,7 @@ def main() -> None:
                 futures = {
                     executor.submit(
                         _run_hdbscan_from_shm, shm.name, red_shape, red_dtype.str,
-                        umap_dims, mcs, max(1, int(mcs * pct / 100)),
+                        umap_dims, mcs, max(1, int(mcs * pct / 100)), pct,
                         eps, args.alpha, t_umap, manual_window,
                     ): (umap_dims, mcs, pct, eps)
                     for mcs, pct, eps in product(mcs_list, min_samples_pct_list, eps_list)
