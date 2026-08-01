@@ -49,29 +49,29 @@ def main():
                 # If conversion to float fails, it's not a valid sweep directory
                 continue
                 
-                # find the csv inside
-                sweep_dir = child / "sweep"
-                if not sweep_dir.exists():
-                    continue
-                
-                # find results_*.csv
-                csvs = list(sweep_dir.glob("results_*.csv"))
-                if not csvs:
-                    continue
-                
-                # there should be only one, or we take the newest
-                csv_path = max(csvs, key=lambda p: p.stat().st_mtime)
-                
-                try:
-                    df = pd.read_csv(csv_path)
-                    df.insert(0, "embedder_type", embedder_type)
-                    df.insert(1, "window_sec", window_sec)
-                    df.insert(2, "hop_sec", hop_sec)
-                    df.insert(3, "hop_pct", hop_pct)
-                    df.insert(4, "perch_padding", perch_padding)
-                    all_dfs.append(df)
-                except Exception as e:
-                    print(f"Error reading {csv_path}: {e}")
+            # find the csv inside
+            sweep_dir = child / "sweep"
+            if not sweep_dir.exists():
+                continue
+            
+            # find results_*.csv
+            csvs = list(sweep_dir.glob("results_*.csv"))
+            if not csvs:
+                continue
+            
+            # there should be only one, or we take the newest
+            csv_path = max(csvs, key=lambda p: p.stat().st_mtime)
+            
+            try:
+                df = pd.read_csv(csv_path)
+                df.insert(0, "embedder_type", embedder_type)
+                df.insert(1, "window_sec", window_sec)
+                df.insert(2, "hop_sec", hop_sec)
+                df.insert(3, "hop_pct", hop_pct)
+                df.insert(4, "perch_padding", perch_padding)
+                all_dfs.append(df)
+            except Exception as e:
+                print(f"Error reading {csv_path}: {e}")
                     
     if not all_dfs:
         print("No results found to aggregate.")
