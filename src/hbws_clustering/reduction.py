@@ -14,7 +14,7 @@ try:
     import rmm
 
     # RMM pool allocator prevents memory fragmentation and cudaMalloc bottlenecks
-    rmm.reinitialize(pool_allocator=True)
+    rmm.reinitialize(pool_allocator=True, managed_memory=True)
 
     _BACKEND = "cuml"
 except ImportError:

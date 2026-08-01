@@ -82,7 +82,7 @@ try:
     from cuml.manifold import UMAP as _UMAP
     # from cuml.cluster import HDBSCAN as _HDBSCAN
     import rmm
-    rmm.reinitialize(pool_allocator=True)
+    rmm.reinitialize(pool_allocator=True, managed_memory=True)
     _BACKEND = "gpu"
 except ImportError:
     import umap as _umap_lib
