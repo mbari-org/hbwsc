@@ -86,6 +86,7 @@ def run(
     ),
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
     min_cluster_size: int = typer.Option(5, help="HDBSCAN min_cluster_size."),
+    min_samples: Optional[int] = typer.Option(None, help="HDBSCAN min_samples (defaults to min_cluster_size)."),
     alpha: float = typer.Option(1.0, help="HDBSCAN alpha (distance scaling)."),
     epsilon: float = typer.Option(0.0, help="HDBSCAN cluster_selection_epsilon."),
     embeddings_cache: Optional[Path] = typer.Option(
@@ -156,6 +157,7 @@ def run(
         reducer_cluster=reducer_cluster,
         clusterer=HdbscanClusterer(
             min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
             alpha=alpha,
             cluster_selection_epsilon=epsilon
         ),
