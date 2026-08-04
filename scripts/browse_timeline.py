@@ -228,23 +228,23 @@ def _segment_metrics(t_min: float, t_max: float) -> dict | None:
     # Map back to old keys expected by the UI for now
     return {
         "detsim": metrics["DetSim"],
-        "nmi": metrics["NMI"],
+        "ami": metrics["AMI"],
         "ari": metrics["ARI"],
         "homog": metrics["Homogeneity"]
     }
 
 overall_metrics = _segment_metrics(0, total_minutes)
 if overall_metrics is not None:
-    o_nmi = "—" if np.isnan(overall_metrics["nmi"]) else f"{overall_metrics['nmi']:.2f}"
+    o_ami = "—" if np.isnan(overall_metrics["ami"]) else f"{overall_metrics['ami']:.2f}"
     o_ari = "—" if np.isnan(overall_metrics["ari"]) else f"{overall_metrics['ari']:.2f}"
     o_hom = "—" if np.isnan(overall_metrics["homog"]) else f"{overall_metrics['homog']:.2f}"
-    overall_metrics_str = f" | TOTAL DetSim:{overall_metrics['detsim']:.2f} NMI:{o_nmi} ARI:{o_ari} Homog:{o_hom}"
+    overall_metrics_str = f" | TOTAL DetSim:{overall_metrics['detsim']:.2f} AMI:{o_ami} ARI:{o_ari} Homog:{o_hom}"
 else:
     overall_metrics_str = ""
 
 # Precompute per-segment metrics for the "best" buttons
 seg_detsim = np.zeros(n_segments)
-seg_nmi    = np.zeros(n_segments)
+seg_ami    = np.zeros(n_segments)
 seg_ari    = np.zeros(n_segments)
 seg_homog  = np.zeros(n_segments)
 for i in range(n_segments):
@@ -258,11 +258,11 @@ for i in range(n_segments):
         seg_detsim[i] = is_clustered[mask].mean() if mask.any() else 0.0
     else:
         seg_detsim[i] = metr["detsim"]
-        seg_nmi[i]    = 0.0 if np.isnan(metr["nmi"])   else metr["nmi"]
+        seg_ami[i]    = 0.0 if np.isnan(metr["ami"])   else metr["ami"]
         seg_ari[i]    = 0.0 if np.isnan(metr["ari"])   else metr["ari"]
         seg_homog[i]  = 0.0 if np.isnan(metr["homog"]) else metr["homog"]
 best_seg_detsim = int(np.argmax(seg_detsim))
-best_seg_nmi    = int(np.argmax(seg_nmi))
+best_seg_ami    = int(np.argmax(seg_ami))
 best_seg_ari    = int(np.argmax(seg_ari))
 best_seg_homog  = int(np.argmax(seg_homog))
 
@@ -370,10 +370,10 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         title = f"{title_prefix}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
 
         if metrics is not None:
-            nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
+            ami = "—" if np.isnan(metrics["ami"]) else f"{metrics['ami']:.2f}"
             ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
             hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
-            title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} NMI:{nmi} ARI:{ari} Homog:{hom})"
+            title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} AMI:{ami} ARI:{ari} Homog:{hom})"
         title_fontsize = 9
     elif args.title_mode == "presentation":
         title = "Automated Clustering vs. Manual Annotations"
@@ -381,8 +381,8 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
     elif args.title_mode == "paper":
         title = f"{args.dataset_name}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]"
         if metrics is not None:
-            nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
-            title += f"  (NMI: {nmi}, DetSim: {metrics['detsim']:.2f})"
+            ami = "—" if np.isnan(metrics["ami"]) else f"{metrics['ami']:.2f}"
+            title += f"  (AMI: {ami}, DetSim: {metrics['detsim']:.2f})"
         title_fontsize = 11
 
     ax_spec.set_title(title, fontsize=title_fontsize)
@@ -532,13 +532,13 @@ btn_play   = mwidgets.Button(ax_play,   "▶  Play")
 btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
 btn_best_d = mwidgets.Button(ax_best_d, "★ DetSim")
 
-# NMI / ARI / Homogeneity best-segment buttons only when manual labels are loaded
-btn_best_n = btn_best_a = btn_best_h = None
+# AMI / ARI / Homogeneity best-segment buttons only when manual labels are loaded
+btn_best_a_m = btn_best_a = btn_best_h = None
 if manual_labels:
-    ax_best_n = fig.add_axes([0.61, 0.02, bw, 0.07])
+    ax_best_a_m = fig.add_axes([0.61, 0.02, bw, 0.07])
     ax_best_a = fig.add_axes([0.67, 0.02, bw, 0.07])
     ax_best_h = fig.add_axes([0.73, 0.02, bw, 0.07])
-    btn_best_n = mwidgets.Button(ax_best_n, "★ NMI")
+    btn_best_a_m = mwidgets.Button(ax_best_a_m, "★ AMI")
     btn_best_a = mwidgets.Button(ax_best_a, "★ ARI")
     btn_best_h = mwidgets.Button(ax_best_h, "★ Homog")
 
@@ -629,9 +629,9 @@ def on_best_detsim(_event):
     draw(seg_idx[0])
 
 
-def on_best_nmi(_event):
+def on_best_ami(_event):
     stop_playback()
-    seg_idx[0] = best_seg_nmi
+    seg_idx[0] = best_seg_ami
     draw(seg_idx[0])
 
 
@@ -709,7 +709,7 @@ def on_key(event):
     elif event.key == "b":
         on_best_detsim(None)
     elif event.key == "n" and manual_labels:
-        on_best_nmi(None)
+        on_best_ami(None)
     elif event.key == "a" and manual_labels:
         on_best_ari(None)
     elif event.key == "m" and manual_labels:
@@ -725,8 +725,8 @@ btn_last.on_clicked(on_last)
 btn_play.on_clicked(on_play)
 btn_rewind.on_clicked(on_rewind)
 btn_best_d.on_clicked(on_best_detsim)
-if btn_best_n is not None:
-    btn_best_n.on_clicked(on_best_nmi)
+if btn_best_a_m is not None:
+    btn_best_a_m.on_clicked(on_best_ami)
 if btn_best_a is not None:
     btn_best_a.on_clicked(on_best_ari)
 if btn_best_h is not None:

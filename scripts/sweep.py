@@ -146,12 +146,12 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_sampl
     if manual_window is not None:
         metrics = compute_metrics(labels, manual_window)
         jaccard = metrics["DetSim"]
-        nmi = metrics["NMI"]
+        ami = metrics["AMI"]
         ari = metrics["ARI"]
         v_hom = metrics["Homogeneity"]
     else:
         jaccard = float("nan")
-        nmi = float("nan")
+        ami = float("nan")
         ari = float("nan")
         v_hom = float("nan")
     t_metrics = time.perf_counter() - t1
@@ -175,7 +175,7 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_sampl
 
     if manual_window is not None:
         ret["detsim"] = round(jaccard, 4)
-        ret["nmi"] = round(nmi, 4)
+        ret["ami"] = round(ami, 4)
         ret["ari"] = round(ari, 4)
         ret["homog"] = round(v_hom, 4)
 
@@ -271,7 +271,7 @@ def main() -> None:
     col_w = [9, 5, 11, 15, 5, 10, 10, 8, 10, 7, 7, 10, 12, 12]
 
     if manual_window is not None:
-        header.extend(["detsim", "nmi", "ari", "homog"])
+        header.extend(["detsim", "ami", "ari", "homog"])
         col_w.extend([8, 8, 8, 8])
 
     def fmt_row(row: dict) -> str:

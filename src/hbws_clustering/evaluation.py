@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 import numpy as np
 from sklearn.metrics import (
-    normalized_mutual_info_score,
+    adjusted_mutual_info_score,
     adjusted_rand_score,
     homogeneity_completeness_v_measure,
 )
@@ -82,7 +82,7 @@ def compute_metrics(
     if inter.sum() < 2:
         return {
             "DetSim": detsim,
-            "NMI": float("nan"),
+            "AMI": float("nan"),
             "ARI": float("nan"),
             "Homogeneity": float("nan"),
             "Completeness": float("nan"),
@@ -92,13 +92,13 @@ def compute_metrics(
     c_in = labels[inter]
     m_in = manual_window[inter]
 
-    nmi = normalized_mutual_info_score(m_in, c_in)
+    ami = adjusted_mutual_info_score(m_in, c_in)
     ari = adjusted_rand_score(m_in, c_in)
     homog, comp, v_meas = homogeneity_completeness_v_measure(m_in, c_in)
 
     return {
         "DetSim": float(detsim),
-        "NMI": float(nmi),
+        "AMI": float(ami),
         "ARI": float(ari),
         "Homogeneity": float(homog),
         "Completeness": float(comp),

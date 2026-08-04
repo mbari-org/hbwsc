@@ -85,9 +85,9 @@ def main():
     if "min_samples" in combined_df.columns:
         combined_df.drop(columns=["min_samples"], inplace=True)
 
-    # Sort by the mean of nmi,ari,homog
+    # Sort by the mean of ami,ari,homog
     sort_cols = []
-    for col in ["nmi", "ari", "homog"]:
+    for col in ["ami", "ari", "homog"]:
         if col in combined_df.columns:
             sort_cols.append(col)
     
