@@ -49,6 +49,9 @@ model = joblib.load(pkl_path)
 with open(parameters_path) as f:
     params = yaml.safe_load(f)
 
+if "hop_pct" in params:
+    params["hop_sec"] = round(float(params["window_sec"]) * float(params["hop_pct"]) / 100.0, 4)
+
 # Resolve relative paths against the parameters.yml location
 audio_files = [str((parameters_path.parent / p).resolve()) for p in params['audio_files']]
 

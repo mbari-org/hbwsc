@@ -99,6 +99,7 @@ hdbscan_epsilon: 0.0         # threshold below which clusters are merged
 sweep_dims: "2,5,10,15,20,30"
 sweep_mcs: "50,100,200"
 sweep_min_samples_pct: "100"    # percentage of mcs to use as min_samples (e.g. "25,50,100")
+# min_samples_pct: 100          # For single runs, percentage of mcs to use as min_samples
 sweep_workers: 2
 
 # Timeline plot segmentation (minutes per segment; omit or set to 0 for a single full plot)
@@ -121,6 +122,10 @@ def load_params(session_dir: Path) -> dict:
         sys.exit(1)
     with open(yml) as f:
         params = yaml.safe_load(f)
+        
+    if "hop_pct" in params:
+        params["hop_sec"] = round(float(params["window_sec"]) * float(params["hop_pct"]) / 100.0, 4)
+        
     # Resolve relative paths against the session directory so that parameters.yml
     # is self-contained regardless of the working directory when just is invoked.
     for key in ("score_file", "score_dir", "manual_labels"):
@@ -224,6 +229,12 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
         cmd += ["--perch-padding", str(params["perch_padding"])]
     if "model" in params:
         cmd += ["--model", str(params["model"])]
+        
+    min_samples = params.get("min_samples")
+    if min_samples is None and "min_samples_pct" in params:
+        min_samples = max(1, int(mcs * float(params["min_samples_pct"]) / 100))
+    if min_samples is not None:
+        cmd += ["--min-samples", str(min_samples)]
 
     cmd += audio_files
     run_cmd(cmd)

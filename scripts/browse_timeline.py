@@ -57,6 +57,9 @@ parser.add_argument("--density-window-sec", type=float, default=5.0, help="Windo
 parser.add_argument("--file-index", type=int, default=0, help="Index of the audio file to browse (default 0)")
 parser.add_argument("--export-pdf", type=Path, default=None, nargs="?", const=True,
                     help="Export all segments to a PDF and exit. Optionally provide output path.")
+parser.add_argument("--title-mode", type=str, default="debug", choices=["debug", "paper", "presentation"], 
+                    help="Title style: 'debug' (full hyperparams), 'paper' (clean dataset name + metrics), or 'presentation' (static title).")
+parser.add_argument("--dataset-name", type=str, default="Dataset", help="Name of the dataset (used in 'paper' title mode).")
 args = parser.parse_args()
 
 # ---------------------------------------------------------------------------
@@ -362,15 +365,27 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
     h_sec = params.get("hop_sec", "?")
     eps = params.get("hdbscan_epsilon", 0.0)
 
-    title_prefix = f"{audio_path.name} | {model} | w:{w_sec}s h:{h_sec}s | eps:{eps} | {args.npz.parent.name}{overall_metrics_str}"
-    title = f"{title_prefix}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
+    if args.title_mode == "debug":
+        title_prefix = f"{audio_path.name} | {model} | w:{w_sec}s h:{h_sec}s | eps:{eps} | {args.npz.parent.name}{overall_metrics_str}"
+        title = f"{title_prefix}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
 
-    if metrics is not None:
-        nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
-        ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
-        hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
-        title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} NMI:{nmi} ARI:{ari} Homog:{hom})"
-    ax_spec.set_title(title, fontsize=9)
+        if metrics is not None:
+            nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
+            ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
+            hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
+            title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} NMI:{nmi} ARI:{ari} Homog:{hom})"
+        title_fontsize = 9
+    elif args.title_mode == "presentation":
+        title = "Automated Clustering vs. Manual Annotations"
+        title_fontsize = 12
+    elif args.title_mode == "paper":
+        title = f"{args.dataset_name}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]"
+        if metrics is not None:
+            nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
+            title += f"  (NMI: {nmi}, DetSim: {metrics['detsim']:.2f})"
+        title_fontsize = 11
+
+    ax_spec.set_title(title, fontsize=title_fontsize)
     ax_spec.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
     ax_spec.tick_params(labelbottom=False)
 
@@ -389,7 +404,7 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
     ax_time.set_xlim(t_min, t_max)
     ax_time.set_ylim(-0.5, 0.5)
     ax_time.set_yticks([])
-    ax_time.set_ylabel("clusters", fontsize=7)
+    ax_time.set_ylabel("Model Output\nClusters", fontsize=8)
     ax_time.tick_params(labelbottom=False)
 
     handles, lbls = ax_time.get_legend_handles_labels()
@@ -437,7 +452,7 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         ax_manu.set_xlim(t_min, t_max)
         ax_manu.set_ylim(-0.5, 0.5)
         ax_manu.set_yticks([])
-        ax_manu.set_ylabel("manual", fontsize=7)
+        ax_manu.set_ylabel("Manual Song Unit\nAnnotations", fontsize=8)
         
         ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
         ax_manu.tick_params(labelbottom=True)
