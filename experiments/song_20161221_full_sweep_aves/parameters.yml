@@ -25,11 +25,11 @@ sample_rate: 16000
 
 # UMAP
 umap_components: 2           # for visualization (2-D scatter plot)
-umap_cluster_components: 10  # for HDBSCAN clustering
+umap_cluster_components: 5  # for HDBSCAN clustering
 umap_neighbors: 15
 
 # HDBSCAN
-min_cluster_size: 200
+min_cluster_size: 50
 
 # Hyperparameter sweep
 sweep_dims: "2,5,10,15,20,30"

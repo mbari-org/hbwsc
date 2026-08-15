@@ -2,7 +2,7 @@
 
 Usage:
     uv run python scripts/predict.py <parameters.yml> <pkl> [out.npz]
-    [FUTURE] add model parameter (logreg vs kmeans etc )
+    [FUTURE] add model parameter (logreg vs perceptron etc )
 
 Arguments:
     parameters.yml     Target session's parameters
@@ -44,7 +44,13 @@ if npz_out.exists():
 
 # --- load ---------------------------------------------------------------------
 
-model = joblib.load(pkl_path)
+model_data = joblib.load(pkl_path)
+if isinstance(model_data, dict):
+    model = model_data["model"]
+    source_colors = model_data.get("colors")
+else:
+    model = model_data
+    source_colors = None
 
 with open(parameters_path) as f:
     params = yaml.safe_load(f)
@@ -133,12 +139,26 @@ labels = model.predict(embeddings)
 start_secs = np.array([w.start_sec for w in windows])
     
 npz_out.parent.mkdir(parents=True, exist_ok=True)
-np.savez(
-    npz_out,
-    labels=labels,
-    embeddings=embeddings,
-    start_secs=start_secs,
-    source_files=np.array([w.source_file.name for w in windows])
-)
+save_kwargs = {
+    "labels": labels,
+    "embeddings": embeddings,
+    "start_secs": start_secs,
+    "source_files": np.array([w.source_file.name for w in windows])
+}
+
+if source_colors is not None:
+    save_kwargs["cluster_color_keys"] = np.array(list(source_colors.keys()))
+    
+    # Pad RGB (len 3) to RGBA (len 4) to ensure homogeneous array shape for npz saving
+    vals = []
+    for val in source_colors.values():
+        if len(val) == 3:
+            vals.append((val[0], val[1], val[2], 1.0))
+        else:
+            vals.append(val)
+            
+    save_kwargs["cluster_color_vals"] = np.array(vals)
+
+np.savez(npz_out, **save_kwargs)
 
 print(f"Classifier output saved to {npz_out}.")

@@ -26,6 +26,9 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.colors import extract_colors_from_npz
+
 # --- args ---------------------------------------------------------------------
 
 args = sys.argv[1:]
@@ -77,9 +80,7 @@ unique_labels = sorted(np.unique(labels).tolist())
 cluster_labels = [lbl for lbl in unique_labels if lbl >= 0]
 n_clusters = len(cluster_labels)
 
-cmap = plt.get_cmap("tab10" if n_clusters <= 10 else "tab20")
-colours = {lbl: cmap(i / max(n_clusters - 1, 1)) for i, lbl in enumerate(cluster_labels)}
-colours[-1] = (0.75, 0.75, 0.75, 0.4)  # noise: grey, semi-transparent
+colours = extract_colors_from_npz(dict(r), color_mode="3D")
 
 x_minutes = start_secs / 60.0
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0

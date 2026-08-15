@@ -20,6 +20,9 @@ from sklearn.linear_model import LogisticRegression
 import numpy as np
 import joblib
 
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.colors import extract_colors_from_npz
+
 # --- args ---------------------------------------------------------------------
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -57,5 +60,8 @@ logreg = LogisticRegression(
 
 logreg.fit(X_train, y_train)
 
+# Extract colors from source npz (preferring 3D if available)
+colors = extract_colors_from_npz(dict(r), color_mode="3D")
+
 model_out.parent.mkdir(parents=True, exist_ok=True)
-joblib.dump(logreg, model_out)
+joblib.dump({"model": logreg, "colors": colors}, model_out)

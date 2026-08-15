@@ -33,6 +33,9 @@ import matplotlib.ticker as mticker
 import matplotlib.widgets as mwidgets
 import numpy as np
 import soundfile as sf
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.colors import get_2d_colors, get_default_colors, get_3d_colors, extract_colors_from_npz
 from scipy.signal import spectrogram as scipy_spectrogram
 
 import sys
@@ -49,9 +52,10 @@ if not _IS_MACOS:
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("npz", type=Path)
-parser.add_argument("--segment-minutes", type=float, default=2.0)
-parser.add_argument("--audio", type=Path, default=None)
-parser.add_argument("--manual-labels", type=Path, default=None)
+parser.add_argument("--segment-minutes", type=float, default=2.0, help="Segment duration in minutes")
+parser.add_argument("--audio", type=Path, help="WAV file to play/spectrogram (default: first source file in npz)")
+parser.add_argument("--manual-labels", type=Path, help="Raven selection table with manual labels (.txt)")
+parser.add_argument("--color", type=str, default="3D", choices=["2D", "3D", "default"], help="Color mapping mode: 2D, 3D, or default")
 parser.add_argument("--spectrogram-type", type=str, default="auto", choices=["auto", "default", "perch"], help="Spectrogram style")
 parser.add_argument("--density-window-sec", type=float, default=5.0, help="Window size for density calculation")
 parser.add_argument("--file-index", type=int, default=0, help="Index of the audio file to browse (default 0)")
@@ -92,9 +96,14 @@ unique_labels = sorted(np.unique(labels).tolist())
 cluster_labels = [lbl for lbl in unique_labels if lbl >= 0]
 n_clusters = len(cluster_labels)
 
-cmap = plt.get_cmap("tab20")
-colours = {lbl: cmap.colors[lbl % len(cmap.colors)] for lbl in cluster_labels}
-colours[-1] = (0.75, 0.75, 0.75, 0.4)
+probabilities = r.get("probabilities")
+reduced = r.get("reduced")
+reduced_3d = r.get("reduced_3d")
+
+if "cluster_color_keys" not in r and args.color == "3D" and reduced_3d is None:
+    print("3D UMAP not found, run plot-3D")
+
+colors = extract_colors_from_npz(dict(r), color_mode=args.color)
 
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0
 x_minutes = start_secs / 60.0
@@ -374,20 +383,25 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
             ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
             hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
             title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} AMI:{ami} ARI:{ari} Homog:{hom})"
-        title_fontsize = 9
+        title_fontsize = 13
     elif args.title_mode == "presentation":
         title = "Automated Clustering vs. Manual Annotations"
-        title_fontsize = 12
+        title_fontsize = 16
     elif args.title_mode == "paper":
         title = f"{args.dataset_name}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]"
         if metrics is not None:
-            ami = "—" if np.isnan(metrics["ami"]) else f"{metrics['ami']:.2f}"
-            title += f"  (AMI: {ami}, DetSim: {metrics['detsim']:.2f})"
-        title_fontsize = 11
+            # ami = "—" if np.isnan(metrics["ami"]) else f"{metrics['ami']:.2f}"
+            ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
+            title += f"  (Window ARI: {ami}/{ari})"
+        if overall_metrics is not None:
+            # o_ami = "—" if np.isnan(overall_metrics["ami"]) else f"{overall_metrics['ami']:.2f}"
+            o_ari = "—" if np.isnan(overall_metrics["ari"]) else f"{overall_metrics['ari']:.2f}"
+            title += f"  (Session ARI: {o_ami}/{o_ari})"
+        title_fontsize = 15
 
     ax_spec.set_title(title, fontsize=title_fontsize)
     ax_spec.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-    ax_spec.tick_params(labelbottom=False)
+    ax_spec.tick_params(labelsize=10, labelbottom=False)
 
     # --- cluster strip --------------------------------------------------------
     ax_time.cla()
@@ -399,17 +413,17 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         tag = "noise" if lbl == -1 else f"cluster {lbl}"
         ax_time.bar(
             x_minutes[mask], height=1.0, width=hop_minutes, bottom=-0.5,
-            color=colours[lbl], linewidth=0, label=tag, align="edge",
+            color=colors[lbl], linewidth=0, label=tag, align="edge",
         )
     ax_time.set_xlim(t_min, t_max)
     ax_time.set_ylim(-0.5, 0.5)
     ax_time.set_yticks([])
-    ax_time.set_ylabel("Model Output\nClusters", fontsize=8)
-    ax_time.tick_params(labelbottom=False)
+    ax_time.set_ylabel("Model Output\nClusters", fontsize=12)
+    ax_time.tick_params(labelsize=10, labelbottom=False)
 
     handles, lbls = ax_time.get_legend_handles_labels()
     ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
-                   ncol=min(n_clusters + 1, 12), fontsize=7, framealpha=0.8, borderaxespad=0)
+                   ncol=min(n_clusters + 1, 12), fontsize=11, framealpha=0.8, borderaxespad=0)
 
     # # --- density strip --------------------------------------------------------
     # ax_dens.cla()
@@ -448,25 +462,25 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
             # label text inside bar if wide enough
             mid = (begin_min + end_min) / 2
             if t_min <= mid <= t_max:
-                ax_manu.text(mid, 0, ltype, ha="center", va="center", fontsize=6, clip_on=True)
+                ax_manu.text(mid, 0, ltype, ha="center", va="center", fontsize=10, clip_on=True)
         ax_manu.set_xlim(t_min, t_max)
         ax_manu.set_ylim(-0.5, 0.5)
         ax_manu.set_yticks([])
-        ax_manu.set_ylabel("Manual Song Unit\nAnnotations", fontsize=8)
+        ax_manu.set_ylabel("Manual Song Unit\nAnnotations", fontsize=12)
         
         ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-        ax_manu.tick_params(labelbottom=True)
-        ax_manu.set_xlabel("Time (h:mm:ss)")
+        ax_manu.tick_params(labelsize=10, labelbottom=True)
+        ax_manu.set_xlabel("Time (h:mm:ss)", fontsize=12)
 
         mhandles, mlbls = ax_manu.get_legend_handles_labels()
         if mhandles:
             ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
-                           ncol=min(len(manual_colours), 15), fontsize=7, framealpha=0.8, borderaxespad=0)
+                           ncol=min(len(manual_colours), 15), fontsize=11, framealpha=0.8, borderaxespad=0)
                            
     if ax_manu is None:
         ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-        ax_time.tick_params(labelbottom=True)
-        ax_time.set_xlabel("Time (h:mm:ss)")
+        ax_time.tick_params(labelsize=10, labelbottom=True)
+        ax_time.set_xlabel("Time (h:mm:ss)", fontsize=12)
 
 
 # export as a pdf
@@ -484,16 +498,17 @@ if args.export_pdf is not None:
 
     with PdfPages(str(pdf_path)) as pdf:
         for si in range(n_segments):
-            has_manual = manual_labels is not None
-            fig_exp, axes = plt.subplots(
-                nrows=2 + int(has_manual), ncols=1,
-                figsize=(20, 6 if has_manual else 5),
-                gridspec_kw={"height_ratios": [3, 1] + ([1] if has_manual else [])},
-                sharex=True,
-            )
-            render_segment(si, axes[0], axes[1],
-                           axes[2] if has_manual else None)
-            fig_exp.subplots_adjust(left=0.04, right=0.98, top=0.92, bottom=0.08, hspace=0.15)
+            fig_exp = plt.figure(figsize=(20, 10 if manual_labels else 8))
+            if manual_labels:
+                ax_spec = fig_exp.add_axes([0.05, 0.50, 0.93, 0.39])
+                ax_time = fig_exp.add_axes([0.05, 0.32, 0.93, 0.16])
+                ax_manu = fig_exp.add_axes([0.05, 0.14, 0.93, 0.16])
+            else:
+                ax_spec = fig_exp.add_axes([0.05, 0.41, 0.93, 0.51])
+                ax_time = fig_exp.add_axes([0.05, 0.14, 0.93, 0.25])
+                ax_manu = None
+                
+            render_segment(si, ax_spec, ax_time, ax_manu)
             pdf.savefig(fig_exp, dpi=150)
             plt.close(fig_exp)
             print(f"  segment {si + 1}/{n_segments}", end="\r")

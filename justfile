@@ -62,11 +62,16 @@ export-raven npz window_sec:
 aggregate-raven raven_txt:
     uv run python scripts/aggregate_raven.py {{ raven_txt }}
 
-inspect-npz npz="output/results.npz":
+inspect-npz npz:
     uv run python scripts/inspect_npz.py {{ npz }}
 
-plot-umap npz="output/results.npz" out="output/results.png":
+# Plot UMAP from a results.npz file
+plot-umap npz out="":
     uv run python scripts/plot_umap.py {{ npz }} {{ out }}
+
+# Plot a 3D UMAP from a results.npz file
+plot-umap-3d npz out="":
+    uv run python scripts/plot_umap_3d.py {{ npz }} {{ out }}
 
 # Session-based workflow (reads parameters.yml from the session directory)
 
@@ -122,6 +127,14 @@ export_timeline npz segment_minutes='2' density_window='5' file_index='0' file_n
         {{ npz }} \
         --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
         --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }} \
+
+export_presentation_timeline npz dataset_name='' segment_minutes='2' density_window='5' file_index='0' file_name='' :
+    uv run python scripts/browse_timeline.py \
+        {{ npz }} \
+        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
+        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }} \
+        --title-mode paper --dataset-name "{{ dataset_name }}"
+
 
 export_timeline_audio npz segment_minutes='2' density_window='5' file_index='0' audio= '' file_name='' :
     uv run python scripts/browse_timeline.py \
