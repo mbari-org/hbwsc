@@ -392,11 +392,11 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         if metrics is not None:
             # ami = "—" if np.isnan(metrics["ami"]) else f"{metrics['ami']:.2f}"
             ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
-            title += f"  (Window ARI: {ami}/{ari})"
+            title += f"  (Window ARI: {ari})"
         if overall_metrics is not None:
             # o_ami = "—" if np.isnan(overall_metrics["ami"]) else f"{overall_metrics['ami']:.2f}"
             o_ari = "—" if np.isnan(overall_metrics["ari"]) else f"{overall_metrics['ari']:.2f}"
-            title += f"  (Session ARI: {o_ami}/{o_ari})"
+            title += f"  (Session ARI: {o_ari})"
         title_fontsize = 15
 
     ax_spec.set_title(title, fontsize=title_fontsize)
