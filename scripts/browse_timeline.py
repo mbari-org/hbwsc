@@ -399,7 +399,8 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
             title += f"  (Session ARI: {o_ari})"
         title_fontsize = 15
 
-    ax_spec.set_title(title, fontsize=title_fontsize)
+    if seg_minutes <= 32:
+        ax_spec.set_title(title, fontsize=title_fontsize)
     ax_spec.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
     ax_spec.tick_params(labelsize=10, labelbottom=False)
 
@@ -421,9 +422,10 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
     ax_time.set_ylabel("Model Output\nClusters", fontsize=12)
     ax_time.tick_params(labelsize=10, labelbottom=False)
 
-    handles, lbls = ax_time.get_legend_handles_labels()
-    ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
-                   ncol=min(n_clusters + 1, 12), fontsize=11, framealpha=0.8, borderaxespad=0)
+    if seg_minutes <= 32:
+        handles, lbls = ax_time.get_legend_handles_labels()
+        ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
+                       ncol=min(n_clusters + 1, 12), fontsize=11, framealpha=0.8, borderaxespad=0)
 
     # # --- density strip --------------------------------------------------------
     # ax_dens.cla()
@@ -461,21 +463,22 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
             )
             # label text inside bar if wide enough
             mid = (begin_min + end_min) / 2
-            if t_min <= mid <= t_max:
+            if t_min <= mid <= t_max and seg_minutes <= 32:
                 ax_manu.text(mid, 0, ltype, ha="center", va="center", fontsize=10, clip_on=True)
         ax_manu.set_xlim(t_min, t_max)
         ax_manu.set_ylim(-0.5, 0.5)
         ax_manu.set_yticks([])
-        ax_manu.set_ylabel("Manual Song Unit\nAnnotations", fontsize=12)
         
         ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
         ax_manu.tick_params(labelsize=10, labelbottom=True)
+        ax_manu.set_ylabel("Manual Song Unit\nAnnotations", fontsize=12)
         ax_manu.set_xlabel("Time (h:mm:ss)", fontsize=12)
 
-        mhandles, mlbls = ax_manu.get_legend_handles_labels()
-        if mhandles:
-            ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
-                           ncol=min(len(manual_colours), 15), fontsize=11, framealpha=0.8, borderaxespad=0)
+        if seg_minutes <= 32:
+            mhandles, mlbls = ax_manu.get_legend_handles_labels()
+            if mhandles:
+                ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
+                               ncol=min(len(manual_colours), 15), fontsize=11, framealpha=0.8, borderaxespad=0)
                            
     if ax_manu is None:
         ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
@@ -498,15 +501,29 @@ if args.export_pdf is not None:
 
     with PdfPages(str(pdf_path)) as pdf:
         for si in range(n_segments):
-            fig_exp = plt.figure(figsize=(20, 10 if manual_labels else 8))
-            if manual_labels:
-                ax_spec = fig_exp.add_axes([0.05, 0.50, 0.93, 0.39])
-                ax_time = fig_exp.add_axes([0.05, 0.32, 0.93, 0.16])
-                ax_manu = fig_exp.add_axes([0.05, 0.14, 0.93, 0.16])
+            if seg_minutes > 32:
+                fig_exp = plt.figure(figsize=(20, 6))
             else:
-                ax_spec = fig_exp.add_axes([0.05, 0.41, 0.93, 0.51])
-                ax_time = fig_exp.add_axes([0.05, 0.14, 0.93, 0.25])
-                ax_manu = None
+                fig_exp = plt.figure(figsize=(20, 10 if manual_labels else 8))
+                
+            if seg_minutes > 32:
+                if manual_labels:
+                    ax_spec = fig_exp.add_axes([0.05, 0.68, 0.93, 0.22])
+                    ax_time = fig_exp.add_axes([0.05, 0.41, 0.93, 0.22])
+                    ax_manu = fig_exp.add_axes([0.05, 0.14, 0.93, 0.22])
+                else:
+                    ax_spec = fig_exp.add_axes([0.05, 0.68, 0.93, 0.22])
+                    ax_time = fig_exp.add_axes([0.05, 0.41, 0.93, 0.22])
+                    ax_manu = None
+            else:
+                if manual_labels:
+                    ax_spec = fig_exp.add_axes([0.05, 0.50, 0.93, 0.39])
+                    ax_time = fig_exp.add_axes([0.05, 0.32, 0.93, 0.16])
+                    ax_manu = fig_exp.add_axes([0.05, 0.14, 0.93, 0.16])
+                else:
+                    ax_spec = fig_exp.add_axes([0.05, 0.41, 0.93, 0.51])
+                    ax_time = fig_exp.add_axes([0.05, 0.14, 0.93, 0.25])
+                    ax_manu = None
                 
             render_segment(si, ax_spec, ax_time, ax_manu)
             pdf.savefig(fig_exp, dpi=150)
@@ -517,18 +534,33 @@ if args.export_pdf is not None:
     sys.exit(0)
 
 # create the figure
-fig = plt.figure(figsize=(20, 10 if manual_labels else 8))
-
-if manual_labels:
-    ax_spec = fig.add_axes([0.05, 0.50, 0.93, 0.39])
-    ax_time = fig.add_axes([0.05, 0.32, 0.93, 0.16])
-    ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.16])
-    ax_dens = None
+if seg_minutes > 32:
+    fig = plt.figure(figsize=(20, 8))
 else:
-    ax_spec = fig.add_axes([0.05, 0.41, 0.93, 0.51])
-    ax_time = fig.add_axes([0.05, 0.14, 0.93, 0.25])
-    ax_dens = None
-    ax_manu = None
+    fig = plt.figure(figsize=(20, 10 if manual_labels else 8))
+
+if seg_minutes > 32:
+    if manual_labels:
+        ax_spec = fig.add_axes([0.05, 0.68, 0.93, 0.22])
+        ax_time = fig.add_axes([0.05, 0.41, 0.93, 0.22])
+        ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.22])
+        ax_dens = None
+    else:
+        ax_spec = fig.add_axes([0.05, 0.68, 0.93, 0.22])
+        ax_time = fig.add_axes([0.05, 0.41, 0.93, 0.22])
+        ax_dens = None
+        ax_manu = None
+else:
+    if manual_labels:
+        ax_spec = fig.add_axes([0.05, 0.50, 0.93, 0.39])
+        ax_time = fig.add_axes([0.05, 0.32, 0.93, 0.16])
+        ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.16])
+        ax_dens = None
+    else:
+        ax_spec = fig.add_axes([0.05, 0.41, 0.93, 0.51])
+        ax_time = fig.add_axes([0.05, 0.14, 0.93, 0.25])
+        ax_dens = None
+        ax_manu = None
 
 bw = 0.05  # button width
 ax_first  = fig.add_axes([0.06, 0.02, bw, 0.07])

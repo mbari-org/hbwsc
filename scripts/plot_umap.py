@@ -14,7 +14,7 @@ from hbws_clustering.colors import get_2d_colors, get_default_colors, get_3d_col
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("npz", type=Path, nargs="?", default=Path("results.npz"), help="Path to results.npz")
 parser.add_argument("out", type=Path, nargs="?", default=None, help="Output PNG path")
-parser.add_argument("--color", type=str, default="2D", choices=["2D", "3D", "default"], help="Color mapping mode")
+parser.add_argument("--color", type=str, default="2D", choices=["2D", "3D", "default", "uncolored"], help="Color mapping mode")
 args = parser.parse_args()
 
 npz_path = args.npz
@@ -37,6 +37,8 @@ elif args.color == "3D" and reduced_3d is not None:
 elif args.color == "3D" and reduced_3d is None:
     print("no 3D map found.")
     colors = get_2d_colors(labels, xy, probabilities) if probabilities is not None else get_default_colors(labels)
+elif args.color == "uncolored":
+    colors = {cid: "darkgrey" for cid in cluster_ids}
 else:
     colors = get_default_colors(labels)
 
@@ -70,13 +72,15 @@ for cid in cluster_ids:
         zorder=2,
     )
     # Mark centroid
-    cx, cy = xy[mask].mean(axis=0)
-    ax.scatter(cx, cy, c=[color], s=120, marker="*", edgecolors="white", linewidths=0.6, zorder=3)
+    if args.color != "uncolored":
+        cx, cy = xy[mask].mean(axis=0)
+        ax.scatter(cx, cy, c=[color], s=120, marker="*", edgecolors="white", linewidths=0.6, zorder=3)
 
 ax.set_title(f"UMAP projection — {npz_path.name}")
 ax.set_xlabel("UMAP 1")
 ax.set_ylabel("UMAP 2")
-ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9, framealpha=0.7)
+if args.color != "uncolored":
+    ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9, framealpha=0.7)
 ax.set_aspect("equal", adjustable="datalim")
 fig.tight_layout(rect=[0, 0, 0.85, 1])
 
