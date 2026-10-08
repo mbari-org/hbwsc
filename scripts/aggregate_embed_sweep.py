@@ -70,7 +70,7 @@ def main():
                 df.insert(3, "hop_pct", hop_pct)
                 df.insert(4, "perch_padding", perch_padding)
                 all_dfs.append(df)
-            except Exception as e:
+            except (IOError, pd.errors.EmptyDataError) as e:
                 print(f"Error reading {csv_path}: {e}")
                     
     if not all_dfs:

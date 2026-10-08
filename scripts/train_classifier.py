@@ -28,6 +28,8 @@ from hbws_clustering.colors import extract_colors_from_npz
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("npz", type=Path, help="Path to a results .npz file produced by hbws-cluster")
 parser.add_argument("out_pkl", type=Path, nargs="?", default=None, help="Output model path")
+# NOTE: Dropping noise is good for training, but will force every input to cluster somewhere, 
+# this should be addressed in the future, perhaps reintroducing noise in a smarter and more careful way. 
 parser.add_argument("--drop-noise", action="store_true", help="Drop labels with -1 (noise) before training")
 args = parser.parse_args()
 

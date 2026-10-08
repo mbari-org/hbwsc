@@ -110,56 +110,23 @@ run-inference src_dir targ_dir train_out="" pred_out="":
 
 ###########################
 
-browse_timeline npz segment_minutes='2' density_window='5' file_index='0':
-    uv run python scripts/browse_timeline.py \
-        {{ npz }} \
+# Base command for browsing interactively. Pass any extra args using +args
+browse_timeline npz segment_minutes='2' file_index='0' +args="":
+    uv run python scripts/browse_timeline.py {{ npz }} \
         --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
-        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }}
+        --segment-minutes {{ segment_minutes }} \
+        --file-index {{ file_index }} \
+        {{ args }}
 
-browse_timeline_audio npz segment_minutes='2' density_window='5' file_index='0' audio='':
-    uv run python scripts/browse_timeline.py \
-        {{ npz }} \
-        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
-        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --audio {{ audio }}
+# Command for exporting timeline to PDF
+export_timeline npz segment_minutes='2' file_index='0' +args="":
+    just browse_timeline {{ npz }} {{ segment_minutes }} {{ file_index }} --export-pdf {{ args }}
 
-export_timeline npz segment_minutes='2' density_window='5' file_index='0' file_name='' :
-    uv run python scripts/browse_timeline.py \
-        {{ npz }} \
-        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
-        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }} \
+browse_timeline_score0_5 segment_minutes='2' +args="":
+    just browse_timeline experiments/song_20161221_score0.5_w0.5_h0.25/umap15_mcs50/results.npz {{ segment_minutes }} 0 {{ args }}
 
-export_presentation_timeline npz dataset_name='' segment_minutes='2' density_window='5' file_index='0' file_name='' :
-    uv run python scripts/browse_timeline.py \
-        {{ npz }} \
-        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
-        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }} \
-        --title-mode paper --dataset-name "{{ dataset_name }}"
-
-
-export_timeline_audio npz segment_minutes='2' density_window='5' file_index='0' audio= '' file_name='' :
-    uv run python scripts/browse_timeline.py \
-        {{ npz }} \
-        --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
-        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }} \
-        --audio {{ audio }}
-
-export_timeline_nolabel npz segment_minutes='2' density_window='5' file_index='0' file_name='' :
-    uv run python scripts/browse_timeline.py \
-        {{ npz }} \
-        --segment-minutes {{ segment_minutes }} --density-window-sec {{ density_window}} --file-index {{ file_index }} --export-pdf {{ file_name }}
-
-# --audio MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav \
-
-
-browse_timeline_score0_5 segment_minutes='2':
-    just browse_timeline \
-      experiments/song_20161221_score0.5_w0.5_h0.25/umap15_mcs50/results.npz \
-      {{ segment_minutes }}
-
-browse_timeline_full segment_minutes='2':
-    just browse_timeline \
-      experiments/song_20161221_full_w0.5_h0.25/umap20_mcs200/results.npz \
-      {{ segment_minutes }}
+browse_timeline_full segment_minutes='2' +args="":
+    just browse_timeline experiments/song_20161221_full_w0.5_h0.25/umap20_mcs200/results.npz {{ segment_minutes }} 0 {{ args }}
 
 ###########################
 ## GPU

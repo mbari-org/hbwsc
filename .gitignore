@@ -3,6 +3,7 @@ output/
 *.wav
 *.npy
 timeline*.png
+scripts/*.png
 
 # Python-generated files
 __pycache__/

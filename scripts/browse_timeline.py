@@ -57,7 +57,6 @@ parser.add_argument("--audio", type=Path, help="WAV file to play/spectrogram (de
 parser.add_argument("--manual-labels", type=Path, help="Raven selection table with manual labels (.txt)")
 parser.add_argument("--color", type=str, default="3D", choices=["2D", "3D", "default"], help="Color mapping mode: 2D, 3D, or default")
 parser.add_argument("--spectrogram-type", type=str, default="auto", choices=["auto", "default", "perch"], help="Spectrogram style")
-parser.add_argument("--density-window-sec", type=float, default=5.0, help="Window size for density calculation")
 parser.add_argument("--file-index", type=int, default=0, help="Index of the audio file to browse (default 0)")
 parser.add_argument("--export-pdf", type=Path, default=None, nargs="?", const=True,
                     help="Export all segments to a PDF and exit. Optionally provide output path.")
@@ -108,23 +107,7 @@ colors = extract_colors_from_npz(dict(r), color_mode=args.color)
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0
 x_minutes = start_secs / 60.0
 
-# # --- Density data (5-second bins by default) -------------------------------
-# window_min = args.density_window_sec / 60.0
-# dens_bins = np.arange(x_minutes.min(), x_minutes.max() + window_min, window_min)
-# dens_centers = dens_bins[:-1] + window_min / 2.0
-# dens_counts = {lbl: np.zeros(len(dens_bins) - 1) for lbl in unique_labels}
-# dens_indices = np.digitize(x_minutes, dens_bins) - 1
-# for i, lbl in zip(dens_indices, labels):
-#     if 0 <= i < len(dens_bins) - 1:
-#         dens_counts[lbl][i] += 1
-# dens_total = np.sum([dens_counts[lbl] for lbl in unique_labels], axis=0)
-# dens_total[dens_total == 0] = 1
-# dens_data = [dens_counts[lbl] / dens_total for lbl in unique_labels]
-# dens_colors = [colours[lbl] for lbl in unique_labels]
 
-# # Create step-function arrays for stackplot to draw flat-topped bins
-# dens_x_step = np.repeat(dens_bins, 2)[1:-1]
-# dens_y_step = [np.repeat(d, 2) for d in dens_data]
 
 # ---------------------------------------------------------------------------
 # Load manual labels (Raven format)
@@ -427,21 +410,7 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
                        ncol=min(n_clusters + 1, 12), fontsize=11, framealpha=0.8, borderaxespad=0)
 
-    # # --- density strip --------------------------------------------------------
-    # ax_dens.cla()
-    # mask_seg_dens = (dens_x_step >= t_min - window_min) & (dens_x_step <= t_max + window_min)
-    # if mask_seg_dens.any():
-    #     seg_x = dens_x_step[mask_seg_dens]
-    #     seg_data = [d[mask_seg_dens] for d in dens_y_step]
-    #     ax_dens.stackplot(seg_x, *seg_data, colors=dens_colors, linewidth=0)
-    # ax_dens.set_xlim(t_min, t_max)
-    # ax_dens.set_ylim(0, 1.0)
-    # ax_dens.set_yticks([])
-    # ax_dens.set_ylabel("density", fontsize=7)
 
-    # ax_dens.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-    # ax_dens.tick_params(labelbottom=True)
-    # ax_dens.set_xlabel("Time (h:mm:ss)")
 
     # --- manual labels strip --------------------------------------------------
     if ax_manu is not None:
@@ -544,22 +513,18 @@ if seg_minutes > 32:
         ax_spec = fig.add_axes([0.05, 0.68, 0.93, 0.22])
         ax_time = fig.add_axes([0.05, 0.41, 0.93, 0.22])
         ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.22])
-        ax_dens = None
     else:
         ax_spec = fig.add_axes([0.05, 0.68, 0.93, 0.22])
         ax_time = fig.add_axes([0.05, 0.41, 0.93, 0.22])
-        ax_dens = None
         ax_manu = None
 else:
     if manual_labels:
         ax_spec = fig.add_axes([0.05, 0.50, 0.93, 0.39])
         ax_time = fig.add_axes([0.05, 0.32, 0.93, 0.16])
         ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.16])
-        ax_dens = None
     else:
         ax_spec = fig.add_axes([0.05, 0.41, 0.93, 0.51])
         ax_time = fig.add_axes([0.05, 0.14, 0.93, 0.25])
-        ax_dens = None
         ax_manu = None
 
 bw = 0.05  # button width
