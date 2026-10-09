@@ -314,11 +314,13 @@ hbws_clustering/
 │   ├── evaluate_generalization.py # ML generalization evaluation pipeline
 │   ├── train_classifier.py    # Random Forest classifier training
 │   ├── predict.py             # inference script for classifier
-│   ├── inspect_npz.py         # per-cluster summary table
-│   ├── plot_umap.py           # UMAP scatter plot
-│   ├── plot_density.py        # proportional cluster density over time
 │   ├── sweep.py               # hyperparameter search
-│   └── ...                    # various other plotting and export utilities
+│   ├── analyze/               # one-off plotting and visualization scripts
+│   │   ├── plot_umap.py       # UMAP scatter plot
+│   │   ├── plot_density.py    # proportional cluster density over time
+│   │   └── ...
+│   ├── inspect_npz.py         # per-cluster summary table
+│   └── ...                    # various other export utilities
 ├── src/hbws_clustering/
 │   ├── __init__.py
 │   ├── __main__.py            # hbws-cluster CLI (typer)

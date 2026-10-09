@@ -464,11 +464,11 @@ def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):
     window_sec = str(params["window_sec"])
     n_samples = str(params.get("n_cluster_samples", 10))
 
-    run_cmd(["uv", "run", "python", "scripts/plot_umap.py", str(npz), str(d / "umap.png")])
+    run_cmd(["uv", "run", "python", "scripts/analyze/plot_umap.py", str(npz), str(d / "umap.png")])
 
     timeline_dir = d / "timeline"
     timeline_dir.mkdir(exist_ok=True)
-    timeline_cmd = ["uv", "run", "python", "scripts/plot_timeline.py", str(npz), str(timeline_dir / "timeline.png")]
+    timeline_cmd = ["uv", "run", "python", "scripts/analyze/plot_timeline.py", str(npz), str(timeline_dir / "timeline.png")]
     seg_minutes = params.get("timeline_segment_minutes", 0)
     if seg_minutes:
         timeline_cmd += ["--segment-minutes", str(seg_minutes)]

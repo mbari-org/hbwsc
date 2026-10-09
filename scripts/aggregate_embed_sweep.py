@@ -1,3 +1,4 @@
+# Functionality to sweep embeddings of window size, hop size, and perch padding style (repeat or zero padding).
 import sys
 import pandas as pd
 from pathlib import Path
