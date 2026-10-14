@@ -1,0 +1,11 @@
+{
+  "generated_at": "2026-04-07T20:18:07.429985+00:00",
+  "min_cluster_size": 100,
+  "n_clusters": 2,
+  "n_noise": 34,
+  "clusters": {
+    "noise": 34,
+    "cluster 0": 1481,
+    "cluster 1": 38961
+  }
+}

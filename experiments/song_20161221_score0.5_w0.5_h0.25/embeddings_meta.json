@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-04-07T20:46:23.955228+00:00",
+  "n_windows": 40476,
+  "embedding_dim": 768,
+  "source_files": [
+    "/Users/carueda/github/mbari-org/hbws_clustering/MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav"
+  ],
+  "window_sec": 0.5,
+  "hop_sec": 0.25,
+  "score_threshold": 0.5,
+  "score_file": "/Users/carueda/github/mbari-org/hbws_clustering/MARS_20161221_000046_SongSession_10kHz_HPF5Hz_scores.npy",
+  "score_dir": null
+}
