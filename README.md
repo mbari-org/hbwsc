@@ -136,6 +136,17 @@ Each window is converted into a high-dimensional vector. By default, this uses A
 The pipeline has also been expanded to support Google's **Perch 2.0** model, providing an alternative embedding space for comparison.
 Nothing to tune here except `--batch-size` for throughput (default 16 on CPU; 64–128 on GPU).
 
+> **Note on input audio quality.** AVES (like its parent HuBERT) takes raw waveform with no
+> built-in noise-reduction or loudness-normalization step. On variable-SNR field recordings,
+> this means quiet and loud realizations of the same call can land in different regions of
+> the embedding space. If your downstream goal is sensitive to that (e.g. unit-type
+> discovery), consider whether to apply per-file or per-window pre-processing — loudness
+> normalization (RMS or peak), denoising, or PCEN — *before* feeding audio into this
+> pipeline. The pipeline itself is intentionally agnostic about this choice; it depends on
+> the embedder you use (some embedders are trained with noise augmentation and don't need
+> it) and on whether you favor cluster purity (helps) over detection coverage
+> (slightly hurts).
+
 ### Step 3 — UMAP
 
 The pipeline runs two independent UMAP projections by default:

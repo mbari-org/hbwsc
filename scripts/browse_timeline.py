@@ -54,36 +54,26 @@ if not _IS_MACOS:
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("npz", type=Path)
-parser.add_argument("--segment-minutes", type=float, default=2.0, help="Segment duration in minutes")
-parser.add_argument("--audio", type=Path, help="WAV file to play/spectrogram (default: first source file in npz)")
-parser.add_argument("--manual-labels", type=Path, help="Raven selection table with manual labels (.txt)")
-parser.add_argument(
-    "--color", type=str, default="3D", choices=["2D", "3D", "default"], help="Color mapping mode: 2D, 3D, or default"
-)
-parser.add_argument(
-    "--spectrogram-type", type=str, default="auto", choices=["auto", "default", "perch"], help="Spectrogram style"
-)
-parser.add_argument("--file-index", type=int, default=0, help="Index of the audio file to browse (default 0)")
-parser.add_argument(
-    "--export-pdf",
-    type=Path,
-    default=None,
-    nargs="?",
-    const=True,
-    help="Export all segments to a PDF and exit. Optionally provide output path.",
-)
-parser.add_argument(
-    "--title-mode",
-    type=str,
-    default="debug",
-    choices=["debug", "paper", "presentation"],
-    help="""Title style: 'debug' (full hyperparams), 'paper' (clean dataset name + metrics), 
-            or 'presentation' (static title).""",
-)
-parser.add_argument(
-    "--dataset-name", type=str, default="Dataset", help="Name of the dataset (used in 'paper' title mode)."
-)
+parser.add_argument("--segment-minutes", type=float, default=2.0)
+parser.add_argument("--audio", type=Path, default=None)
+parser.add_argument("--manual-labels", type=Path, default=None)
+parser.add_argument("--poster", action="store_true",
+                    help="Poster-friendly layout: shorter spectrogram, larger strip fonts.")
 args = parser.parse_args()
+
+# Layout / font sizes — bumped under --poster for screenshot use.
+if args.poster:
+    SPEC_HEIGHT  = 0.35
+    STRIP_HEIGHT = 0.13
+    STRIP_FS     = 13   # ylabel + legend on cluster/manual strips
+    BAR_TEXT_FS  = 11   # type letters drawn inside manual-label bars
+    TICK_FS      = 11
+else:
+    SPEC_HEIGHT  = 0.55
+    STRIP_HEIGHT = 0.08
+    STRIP_FS     = 7
+    BAR_TEXT_FS  = 6
+    TICK_FS      = 10
 
 # ---------------------------------------------------------------------------
 # Load npz
@@ -278,6 +268,49 @@ best_seg_homog = int(np.argmax(seg_homog))
 # Shared rendering function
 # ---------------------------------------------------------------------------
 
+fig = plt.figure(figsize=(20, 9 if manual_labels else 7))
+
+if manual_labels:
+    # bottom-up: buttons at 0.02–0.09, manual strip, cluster strip, then spectrogram on top
+    manu_bottom = 0.14
+    time_bottom = manu_bottom + STRIP_HEIGHT + 0.03
+    spec_bottom = time_bottom + STRIP_HEIGHT + 0.03
+    ax_spec = fig.add_axes([0.05, spec_bottom, 0.93, SPEC_HEIGHT])
+    ax_time = fig.add_axes([0.05, time_bottom, 0.93, STRIP_HEIGHT])
+    ax_manu = fig.add_axes([0.05, manu_bottom, 0.93, STRIP_HEIGHT])
+else:
+    ax_spec = fig.add_axes([0.05, 0.32, 0.93, 0.60])
+    ax_time = fig.add_axes([0.05, 0.20, 0.93, 0.10])
+    ax_manu = None
+
+bw = 0.05  # button width
+ax_first  = fig.add_axes([0.06, 0.02, bw, 0.07])
+ax_prev   = fig.add_axes([0.12, 0.02, bw, 0.07])
+ax_next   = fig.add_axes([0.18, 0.02, bw, 0.07])
+ax_last   = fig.add_axes([0.24, 0.02, bw, 0.07])
+ax_play   = fig.add_axes([0.40, 0.02, bw, 0.07])
+ax_rewind = fig.add_axes([0.46, 0.02, bw, 0.07])
+ax_best_d = fig.add_axes([0.55, 0.02, bw, 0.07])
+
+btn_first  = mwidgets.Button(ax_first,  "|◀ First")
+btn_prev   = mwidgets.Button(ax_prev,   "◀  Prev")
+btn_next   = mwidgets.Button(ax_next,   "Next  ▶")
+btn_last   = mwidgets.Button(ax_last,   "Last ▶|")
+btn_play   = mwidgets.Button(ax_play,   "▶  Play")
+btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
+btn_best_d = mwidgets.Button(ax_best_d, "★ DetSim")
+
+# NMI / Homogeneity best-segment buttons only when manual labels are loaded.
+btn_best_n = btn_best_h = None
+if manual_labels:
+    ax_best_n = fig.add_axes([0.61, 0.02, bw, 0.07])
+    ax_best_h = fig.add_axes([0.67, 0.02, bw, 0.07])
+    btn_best_n = mwidgets.Button(ax_best_n, "★ NMI")
+    btn_best_h = mwidgets.Button(ax_best_h, "★ Homog")
+
+# ---------------------------------------------------------------------------
+# Draw helpers
+# ---------------------------------------------------------------------------
 
 def fmt_hm(minutes):
     h, m = divmod(int(minutes), 60)
@@ -422,21 +455,12 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
     ax_time.set_xlim(t_min, t_max)
     ax_time.set_ylim(-0.5, 0.5)
     ax_time.set_yticks([])
-    ax_time.set_ylabel("Model Output\nClusters", fontsize=12)
-    ax_time.tick_params(labelsize=10, labelbottom=False)
+    ax_time.set_ylabel("clusters", fontsize=STRIP_FS)
+    ax_time.tick_params(labelbottom=False)
 
-    if seg_minutes <= 32:
-        handles, lbls = ax_time.get_legend_handles_labels()
-        ax_time.legend(
-            handles,
-            lbls,
-            loc="lower left",
-            bbox_to_anchor=(0, 1.01),
-            ncol=min(n_clusters + 1, 12),
-            fontsize=11,
-            framealpha=0.8,
-            borderaxespad=0,
-        )
+    handles, lbls = ax_time.get_legend_handles_labels()
+    ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
+                   ncol=min(n_clusters + 1, 12), fontsize=STRIP_FS, framealpha=0.8, borderaxespad=0)
 
     # --- manual labels strip --------------------------------------------------
     if ax_manu is not None:
@@ -458,46 +482,20 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
             )
             # label text inside bar if wide enough
             mid = (begin_min + end_min) / 2
-            if t_min <= mid <= t_max and seg_minutes <= 32:
-                ax_manu.text(mid, 0, ltype, ha="center", va="center", fontsize=10, clip_on=True)
+            if t_min <= mid <= t_max:
+                ax_manu.text(mid, 0, ltype, ha="center", va="center", fontsize=BAR_TEXT_FS, clip_on=True)
         ax_manu.set_xlim(t_min, t_max)
         ax_manu.set_ylim(-0.5, 0.5)
         ax_manu.set_yticks([])
-
+        ax_manu.set_ylabel("manual", fontsize=STRIP_FS)
         ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-        ax_manu.tick_params(labelsize=10, labelbottom=True)
-        ax_manu.set_ylabel("Manual Song Unit\nAnnotations", fontsize=12)
-        ax_manu.set_xlabel("Time (h:mm:ss)", fontsize=12)
+        ax_manu.set_xlabel("Time (h:mm:ss)", fontsize=TICK_FS)
+        ax_manu.tick_params(labelsize=TICK_FS)
 
-        if seg_minutes <= 32:
-            mhandles, mlbls = ax_manu.get_legend_handles_labels()
-            if mhandles:
-                ax_manu.legend(
-                    mhandles,
-                    mlbls,
-                    loc="lower left",
-                    bbox_to_anchor=(0, 1.01),
-                    ncol=min(len(manual_colours), 15),
-                    fontsize=11,
-                    framealpha=0.8,
-                    borderaxespad=0,
-                )
-
-    if ax_manu is None:
-        ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-        ax_time.tick_params(labelsize=10, labelbottom=True)
-        ax_time.set_xlabel("Time (h:mm:ss)", fontsize=12)
-
-
-# export as a pdf
-if args.export_pdf is not None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    from matplotlib.backends.backend_pdf import PdfPages
-
-    if args.export_pdf is True:
-        pdf_path = args.npz.with_name(args.npz.stem + "_timeline.pdf")
+        mhandles, mlbls = ax_manu.get_legend_handles_labels()
+        if mhandles:
+            ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
+                           ncol=min(len(manual_colours), 15), fontsize=STRIP_FS, framealpha=0.8, borderaxespad=0)
     else:
         pdf_path = args.export_pdf
 
