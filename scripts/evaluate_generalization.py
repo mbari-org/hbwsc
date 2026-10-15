@@ -148,7 +148,8 @@ def main():
 
     if not valid_runs:
         print(
-            f"No configurations matched the criteria: {args.min_clusters} <= n_clusters <= {args.max_clusters} AND noise <= {args.max_noise}% AND dbcv >= {args.min_dbcv}"
+            f"No configurations matched the criteria: {args.min_clusters} <= n_clusters <= {args.max_clusters}"
+            + f"AND noise <= {args.max_noise}% AND dbcv >= {args.min_dbcv}"
         )
         sys.exit(1)
 
@@ -164,7 +165,8 @@ def main():
     for i, r in enumerate(top_runs):
         prefix = f"win={r['window_sec']}, hop={r['hop_sec']}, {r['embedder_type']}, {r['perch_padding']} | "
         print(
-            f" {i + 1}. {prefix}{r['umap_dims']}D, mcs={r['mcs']}, eps={r['eps']} | n={r['n_clusters']}, noise={r['noise_pct']}%, dbcv={r['dbcv']}"
+            f" {i + 1}. {prefix}{r['umap_dims']}D, mcs={r['mcs']}, eps={r['eps']} | "
+            + f"n={r['n_clusters']}, noise={r['noise_pct']}%, dbcv={r['dbcv']}"
         )
 
     # ---------------------------------------------------------------------------
@@ -211,7 +213,8 @@ def main():
 
         print(f"\n{'=' * 70}")
         print(
-            f"=== [{idx + 1}/{len(top_runs)}] {session_dir.name}: {run['umap_dims']}D, mcs={run['mcs']}, eps={run['eps']}"
+            f"=== [{idx + 1}/{len(top_runs)}] {session_dir.name}: {run['umap_dims']}D, "
+            + f"mcs={run['mcs']}, eps={run['eps']}"
         )
         print(f"{'=' * 70}")
 
@@ -304,7 +307,8 @@ def main():
     print(f"=== MASTER GENERALIZATION REPORT: {train_dir.name} -> {eval_dir.name} ===")
     print(f"{'=' * 115}")
     print(
-        f"{'Session':<30} | {'Win/Hop/Pad':<20} | {'Config':<20} | {'DetSim':<6} | {'NMI':<6} | {'ARI':<6} | {'Homog':<6} | {'Aggreg':<6}"
+        f"{'Session':<30} | {'Win/Hop/Pad':<20} | {'Config':<20} | {'DetSim':<6} | "
+        + f"{'NMI':<6} | {'ARI':<6} | {'Homog':<6} | {'Aggreg':<6}"
     )
     print("-" * 115)
 
@@ -313,7 +317,8 @@ def main():
     for res in master_results:
         win_str = f"{res['window_sec']}/{res['hop_sec']} {res['padding'][:3]}"
         print(
-            f"{res['train_session']:<30} | {win_str:<20} | {res['config']:<20} | {res['DetSim']:<6.4f} | {res['NMI']:<6.4f} | {res['ARI']:<6.4f} | {res['Homogeneity']:<6.4f} | {res['Aggregated']:<6.4f}"
+            f"{res['train_session']:<30} | {win_str:<20} | {res['config']:<20} | {res['DetSim']:<6.4f} | "
+            + f"{res['NMI']:<6.4f} | {res['ARI']:<6.4f} | {res['Homogeneity']:<6.4f} | {res['Aggregated']:<6.4f}"
         )
 
     report_csv = eval_dir / f"master_generalization_report_{train_dir.name}.csv"

@@ -77,7 +77,8 @@ parser.add_argument(
     type=str,
     default="debug",
     choices=["debug", "paper", "presentation"],
-    help="Title style: 'debug' (full hyperparams), 'paper' (clean dataset name + metrics), or 'presentation' (static title).",
+    help="""Title style: 'debug' (full hyperparams), 'paper' (clean dataset name + metrics), 
+            or 'presentation' (static title).""",
 )
 parser.add_argument(
     "--dataset-name", type=str, default="Dataset", help="Name of the dataset (used in 'paper' title mode)."
@@ -368,7 +369,10 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
     eps = params.get("hdbscan_epsilon", 0.0)
 
     if args.title_mode == "debug":
-        title_prefix = f"{audio_path.name} | {model} | w:{w_sec}s h:{h_sec}s | eps:{eps} | {args.npz.parent.name}{overall_metrics_str}"
+        title_prefix = (
+            f"{audio_path.name} | {model} | w:{w_sec}s h:{h_sec}s | eps:{eps}"
+            + f"| {args.npz.parent.name}{overall_metrics_str}"
+        )
         title = f"{title_prefix}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
 
         if metrics is not None:
@@ -692,7 +696,6 @@ def on_best_homog(_event):
 
 def on_rewind(_event):
     """Stop playback and reset position to the beginning of the current segment."""
-    was_playing = playing[0]
     _stop_audio()
     playing[0] = False
     pause_offset_sec[0] = 0.0

@@ -1,4 +1,5 @@
-"""Takes a new session directory and runs a specified trained classifier (pkl file). Gets embeddings from audio file, and outputs predictions in a new npz file.
+"""Takes a new session directory and runs a specified trained classifier (pkl file).
+Gets embeddings from audio file, and outputs predictions in a new npz file.
 
 Usage:
     uv run python scripts/predict.py <parameters.yml> <pkl> [out.npz]
