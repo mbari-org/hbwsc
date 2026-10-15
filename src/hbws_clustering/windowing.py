@@ -14,7 +14,7 @@ import soundfile as sf
 class Window:
     """A single audio window with metadata."""
 
-    audio: np.ndarray  # shape (n_samples,), float32, mono
+    audio: np.ndarray | None  # shape (n_samples,), float32, mono; set to None after embedding
     sample_rate: int
     source_file: Path
     start_sec: float
@@ -42,11 +42,21 @@ class AudioWindower:
     window_sec: float = 2.0
     hop_sec: float | None = None
     target_sr: int = 16_000
-    min_window_sec: float = 0.5
+    min_window_sec: float = 0.25
     _hop_sec: float = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._hop_sec = self.hop_sec if self.hop_sec is not None else self.window_sec
+
+    @classmethod
+    def for_aves(cls, **kwargs) -> AudioWindower:
+        # Window input for AVES
+        return cls(window_sec=2.0, target_sr=16_000, **kwargs)
+
+    @classmethod
+    def for_perch(cls, **kwargs) -> AudioWindower:
+        # Window input for Perch
+        return cls(window_sec=5.0, target_sr=32_000, **kwargs)
 
     def window_file(self, path: str | Path) -> list[Window]:
         """Load *path* and return all windows extracted from it."""

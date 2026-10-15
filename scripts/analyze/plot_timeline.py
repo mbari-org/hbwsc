@@ -6,6 +6,9 @@ Noise (-1) is shown in light grey. Colour indicates cluster.
 By default a single plot covers the full recording. Use --segment-minutes to
 split into multiple plots of that duration (e.g. 2 for 2-minute segments).
 
+When the npz contains multiple audio files, their timelines are placed
+sequentially (file 2 starts where file 1 ends) so they don't overlap.
+
 Usage:
     uv run python scripts/plot_timeline.py <npz> [out_png] [--segment-minutes N]
 
@@ -22,6 +25,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.colors import extract_colors_from_npz
 
 # --- args ---------------------------------------------------------------------
 
@@ -47,15 +53,34 @@ out_png = Path(args[1]) if len(args) > 1 else npz_path.with_name(npz_path.stem +
 
 r = np.load(npz_path, allow_pickle=False)
 labels = r["labels"]
-start_secs = r["start_secs"]
+start_secs = r["start_secs"].copy()
+
+# Handling multiple source files
+if "source_files" in r:
+    source_files = r["source_files"].astype(str)
+    seen = {}
+    for sf in source_files:
+        if sf not in seen:
+            seen[sf] = len(seen)
+    unique_sources = list(seen.keys())
+
+    if len(unique_sources) > 1:
+        gap_sec = 60  # 1-minute visual gap between files
+        offset = 0.0
+        for sf in unique_sources:
+            mask = source_files == sf
+            file_secs = start_secs[mask]
+            start_secs[mask] = file_secs - file_secs.min() + offset
+            offset = start_secs[mask].max() + gap_sec
+        print(f"Multi-file timeline: {len(unique_sources)} files placed sequentially")
+        for i, sf in enumerate(unique_sources):
+            print(f"  [{i}] {Path(sf).name}")
 
 unique_labels = sorted(np.unique(labels).tolist())
 cluster_labels = [lbl for lbl in unique_labels if lbl >= 0]
 n_clusters = len(cluster_labels)
 
-cmap = plt.get_cmap("tab10" if n_clusters <= 10 else "tab20")
-colours = {lbl: cmap(i / max(n_clusters - 1, 1)) for i, lbl in enumerate(cluster_labels)}
-colours[-1] = (0.75, 0.75, 0.75, 0.4)  # noise: grey, semi-transparent
+colours = extract_colors_from_npz(dict(r), color_mode="3D")
 
 x_minutes = start_secs / 60.0
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0

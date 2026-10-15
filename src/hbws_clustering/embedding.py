@@ -1,19 +1,21 @@
-"""AVES embedding extraction via TorchAudio.
+"""AVES and Perch embedding extraction.
 
 AVES (Audio Visual Embeddings for Self-supervised learning) models are hosted
 by the Earth Species Project on Google Cloud Storage:
   https://github.com/earthspecies/aves
+
+AVES requires ``torch`` and ``torchaudio``; Perch requires ``tensorflow`` and
+``tensorflow-hub``.  Imports are deferred so that only the dependencies of the
+chosen embedder are needed at runtime.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
-import torch
-import torchaudio
 
 from hbws_clustering.windowing import Window
 
@@ -21,8 +23,9 @@ from hbws_clustering.windowing import Window
 AVES_BASE_BIO = "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-bio.torchaudio.pt"
 AVES_BASE_ALL = "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-all.torchaudio.pt"
 
-# Local cache directory (mirrors torch.hub convention)
-_CACHE_DIR = Path(torch.hub.get_dir()) / "aves"
+# Google PERCH Model Link from Kaggle
+PERCH_GPU = "https://www.kaggle.com/models/google/bird-vocalization-classifier/tensorFlow2/perch_v2/2"
+PERCH_CPU = "https://www.kaggle.com/models/google/bird-vocalization-classifier/tensorFlow2/perch_v2_cpu/1"
 
 
 @dataclass
@@ -48,14 +51,20 @@ class AvesEmbedder:
 
     model_url: str = AVES_BASE_BIO
     pooling: str = "mean"
-    device: str = field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")
+    device: str = "auto"  # resolved to "cuda"/"cpu" on first use
     batch_size: int = 16
 
-    _model: torchaudio.models.Wav2Vec2Model = field(init=False, repr=False, default=None)
+    _model: Any = field(init=False, repr=False, default=None)
 
     def _load(self) -> None:
         if self._model is not None:
             return
+        import torch
+        import torchaudio
+
+        if self.device == "auto":
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
         checkpoint_path = self._download(self.model_url)
         self._model = torchaudio.models.wav2vec2_base()
         state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
@@ -65,9 +74,12 @@ class AvesEmbedder:
 
     @staticmethod
     def _download(url: str) -> Path:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        import torch
+
+        cache_dir = Path(torch.hub.get_dir()) / "aves"
+        cache_dir.mkdir(parents=True, exist_ok=True)
         filename = Path(url).name
-        dest = _CACHE_DIR / filename
+        dest = cache_dir / filename
         if not dest.exists():
             print(f"Downloading AVES checkpoint to {dest} ...")
             torch.hub.download_url_to_file(url, str(dest))
@@ -89,6 +101,8 @@ class AvesEmbedder:
         return np.concatenate(all_embeddings, axis=0)
 
     def _embed_batch(self, batch: list[Window]) -> np.ndarray:
+        import torch
+
         # Stack waveforms; all windows are the same length (AudioWindower pads them)
         waveforms = torch.stack([torch.from_numpy(w.audio) for w in batch]).to(self.device)  # (B, T)
 
@@ -104,3 +118,99 @@ class AvesEmbedder:
             raise ValueError(f"Unknown pooling mode: {self.pooling!r}. Use 'mean' or 'max'.")
 
         return pooled.cpu().float().numpy()
+
+
+@dataclass
+class PerchEmbedder:
+    """Extract frame-level or pooled PERCH embeddings for audio windows.
+
+    The model checkpoint is downloaded once and cached locally under
+    ``torch.hub.get_dir()/aves/``.
+
+    Parameters
+    ----------
+    model_url:
+        Kaggle url for Google's Perch model.
+    pooling:
+        How to aggregate frame-level features into a single vector per window.
+        ``"mean"`` (default) averages over time; ``"max"`` takes the maximum.
+    batch_size:
+        Number of windows processed per forward pass.
+    padding:
+        How to pad windows shorter than 5 seconds to reach the required
+        160,000 samples.  ``"repeat"`` (default) tiles the audio;
+        ``"zero"`` pads with zeros.
+    """
+
+    model_url: str = "auto"  # resolved to GPU/CPU variant on first use
+    pooling: str = "mean"
+    batch_size: int = 64  # Increased from 16 for better CPU parallelism (note: I couldn't tell a difference)
+    padding: str = "repeat"
+
+    _model: Any = field(init=False, repr=False, default=None)
+
+    def __post_init__(self) -> None:
+        if self.padding not in ("repeat", "zero"):
+            raise ValueError(f"Unknown padding mode: {self.padding!r}. Use 'repeat' or 'zero'.")
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        import tensorflow as tf
+        import tensorflow_hub as hub
+
+        gpus = tf.config.list_physical_devices("GPU")
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+            except RuntimeError:
+                pass
+
+        if self.model_url == "auto":
+            self.model_url = PERCH_GPU if gpus else PERCH_CPU
+        self._model = hub.load(self.model_url)
+
+    def embed_windows(self, windows: Sequence[Window]) -> np.ndarray:
+        """Return an (N, D) float32 array of embeddings for *windows*."""
+        from tqdm import tqdm
+
+        self._load()
+        all_embeddings: list[np.ndarray] = []
+
+        with tqdm(total=len(windows), unit="win", desc="Perch embeddings") as bar:
+            for batch_start in range(0, len(windows), self.batch_size):
+                batch = list(windows[batch_start : batch_start + self.batch_size])
+                all_embeddings.append(self._embed_batch(batch))
+                bar.update(len(batch))
+
+        return np.concatenate(all_embeddings, axis=0)
+
+    def _embed_batch(self, batch: list[Window]) -> np.ndarray:
+        waveforms = np.stack([w.audio for w in batch]).astype(np.float32)
+
+        # Perch expects exactly 160,000 samples (5.0 seconds at 32kHz)
+        target_len = 160000
+        current_len = waveforms.shape[1]
+        if current_len < target_len:
+            if self.padding == "repeat":
+                # Tile the audio to reach or exceed target_len, then truncate
+                reps = int(np.ceil(target_len / current_len))
+                waveforms = np.tile(waveforms, (1, reps))
+                waveforms = waveforms[:, :target_len]
+            else:  # "zero"
+                pad_len = target_len - current_len
+                waveforms = np.pad(waveforms, ((0, 0), (0, pad_len)), mode="constant", constant_values=0.0)
+
+        # Apply peak normalization to 0.25 per window as per Perch 2.0 spec
+        for i in range(len(waveforms)):
+            peak = np.abs(waveforms[i]).max()
+            if peak > 1e-8:
+                waveforms[i] = waveforms[i] * (0.25 / peak)
+
+        model_outputs = self._model.signatures["serving_default"](inputs=waveforms)
+
+        # "embedding" key gives the actual perch embeddings
+        pooled = model_outputs["embedding"].numpy()
+
+        return pooled

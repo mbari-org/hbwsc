@@ -1,7 +1,11 @@
-"""Sweep UMAP dimensionality and HDBSCAN min_cluster_size, reporting clustering metrics.
+"""Sweep UMAP dimensionality, HDBSCAN min_cluster_size, and min_samples, reporting clustering metrics.
 
 Loads AVES embeddings from a cache file (no model inference) and evaluates every
 combination of UMAP cluster dimensions and min_cluster_size.
+
+UMAP fits run serially (one dims value at a time) to cap memory usage, while
+HDBSCAN parameter combos run in parallel for each UMAP reduction (CPU only;
+GPU runs serially since cuML HDBSCAN is already fast).
 
 Usage:
     uv run python scripts/sweep.py <embeddings.npy> [options]
@@ -9,9 +13,10 @@ Usage:
 Options:
     --dims     Comma-separated UMAP cluster dimensions to try  (default: 2,5,10,15,20,30)
     --mcs      Comma-separated min_cluster_size values to try  (default: 50,100,200)
+    --min-samples-pct  Comma-separated percentages of mcs to use as min_samples (default: 100)
     --neighbors  UMAP n_neighbors                              (default: 15)
     --out      Path to save results table as CSV               (optional)
-    --workers  Number of parallel workers                      (default: 2; UMAP is memory-heavy)
+    --workers  Number of parallel HDBSCAN workers              (default: 2, ignored on GPU)
 
 Metrics reported per configuration:
     n_clusters   Number of clusters found (excluding noise label -1)
@@ -19,6 +24,7 @@ Metrics reported per configuration:
     dbcv         HDBSCAN relative validity index (DBCV); higher is better, range [-1, 1]
     median_sz    Median cluster size
     min_sz       Smallest cluster
+    max_sz       Largest cluster
 
 Example (4.5-hour song session, 36127 windows at 0.5 s / 0.25 s hop):
     uv run python scripts/sweep.py \\
@@ -52,59 +58,87 @@ Results from that run:
     mcs=200 at 20-30D collapses to 2-3 mega-clusters.
     10-D mcs=100 (DBCV=0.20, 9 clusters) and 10-D mcs=200 (DBCV=0.31, 6 clusters)
     are the best-supported configurations for this session.
-    max_sz       Largest cluster
 """
 
 import argparse
 import csv
+import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from itertools import product
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 
-import hdbscan
 import numpy as np
-import umap as umap_lib
 
-# Worker receives shared-memory metadata instead of the array itself.
-_shm_name: str | None = None
-_shm_shape: tuple | None = None
-_shm_dtype: np.dtype | None = None
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.evaluation import compute_metrics, load_raven_labels, map_labels_to_windows
+
+# ---------------------------------------------------------------------------
+# Backend detection: prefer GPU (cuML) when available
+# ---------------------------------------------------------------------------
+# DOING THIS ONLY FOR UMAP NOW BECAUSE HDBSCAN ON cuML DOESNT HAVE DBCV
+try:
+    # from cuml.cluster import HDBSCAN as _HDBSCAN
+    import rmm
+    from cuml.manifold import UMAP as _UMAP
+
+    rmm.reinitialize(pool_allocator=True)
+    _BACKEND = "gpu"
+except ImportError:
+    import umap as _umap_lib
+
+    _UMAP = _umap_lib.UMAP
+    _BACKEND = "cpu"
+import hdbscan as _hdbscan_lib
+
+_HDBSCAN = _hdbscan_lib.HDBSCAN
 
 
-def _init_worker(shm_name: str, shape: tuple, dtype_str: str) -> None:
-    """Attach to shared memory once per worker process (no copy)."""
-    global _shm_name, _shm_shape, _shm_dtype
-    _shm_name = shm_name
-    _shm_shape = shape
-    _shm_dtype = np.dtype(dtype_str)
+# Removed global init_worker logic because we pass shm info directly to the worker now.
+
+# ---------------------------------------------------------------------------
+# HDBSCAN runner
+# ---------------------------------------------------------------------------
 
 
-def run_one(umap_dims: int, mcs: int, n_neighbors: int) -> dict:
-    shm = SharedMemory(name=_shm_name)
-    embeddings = np.ndarray(_shm_shape, dtype=_shm_dtype, buffer=shm.buf)
+def _run_single_hdbscan(
+    reduced: np.ndarray,
+    umap_dims: int,
+    mcs: int,
+    min_samples: int,
+    min_samples_pct: int,
+    eps: float,
+    alpha: float,
+    t_umap: float,
+    manual_window=None,
+) -> dict:
+    """Run one HDBSCAN config on the given reduced array."""
     t0 = time.perf_counter()
 
-    reducer = umap_lib.UMAP(
-        n_components=umap_dims,
-        n_neighbors=n_neighbors,
-        metric="cosine",
-        random_state=42,
-    )
-    reduced = reducer.fit_transform(embeddings)
-    t_umap = time.perf_counter() - t0
-
-    clusterer = hdbscan.HDBSCAN(
+    hdbscan_kwargs = dict(
         min_cluster_size=mcs,
-        min_samples=mcs,
+        min_samples=min_samples,
         metric="euclidean",
         cluster_selection_method="eom",
+        cluster_selection_epsilon=eps,
+        alpha=alpha,
         gen_min_span_tree=True,
     )
+    # Stop HDBSCAN from spawning its own nested joblib workers inside our ProcessPoolExecutor
+    if getattr(_HDBSCAN, "__module__", "").startswith("hdbscan"):
+        hdbscan_kwargs["core_dist_n_jobs"] = 1
+
+    clusterer = _HDBSCAN(**hdbscan_kwargs)
     clusterer.fit(reduced)
-    t_hdbscan = time.perf_counter() - t0 - t_umap
+    t_hdbscan = time.perf_counter() - t0
 
     labels = clusterer.labels_
+    # cuML may return cupy/cudf — ensure numpy
+    if hasattr(labels, "get"):
+        labels = labels.get()
+    labels = np.asarray(labels)
+
     n = len(labels)
     unique = [lbl for lbl in np.unique(labels) if lbl >= 0]
     n_clusters = len(unique)
@@ -115,15 +149,32 @@ def run_one(umap_dims: int, mcs: int, n_neighbors: int) -> dict:
         median_sz = int(np.median(sizes))
         min_sz = min(sizes)
         max_sz = max(sizes)
-        dbcv = float(clusterer.relative_validity_)
+        dbcv = float(getattr(clusterer, "relative_validity_", float("nan")))
     else:
         median_sz = min_sz = max_sz = 0
         dbcv = float("nan")
 
-    shm.close()
-    return {
+    # Similarity metrics
+    t1 = time.perf_counter()
+    if manual_window is not None:
+        metrics = compute_metrics(labels, manual_window)
+        jaccard = metrics["DetSim"]
+        ami = metrics["AMI"]
+        ari = metrics["ARI"]
+        v_hom = metrics["Homogeneity"]
+    else:
+        jaccard = float("nan")
+        ami = float("nan")
+        ari = float("nan")
+        v_hom = float("nan")
+    t_metrics = time.perf_counter() - t1
+
+    ret = {
         "umap_dims": umap_dims,
         "mcs": mcs,
+        "min_samples": min_samples,
+        "min_samples_pct": min_samples_pct,
+        "eps": eps,
         "n_clusters": n_clusters,
         "noise_pct": round(noise_pct, 1),
         "dbcv": round(dbcv, 4),
@@ -132,7 +183,44 @@ def run_one(umap_dims: int, mcs: int, n_neighbors: int) -> dict:
         "max_sz": max_sz,
         "t_umap_s": round(t_umap, 1),
         "t_hdbscan_s": round(t_hdbscan, 1),
+        "t_metrics_s": round(t_metrics, 2),
     }
+
+    if manual_window is not None:
+        ret["detsim"] = round(jaccard, 4)
+        ret["ami"] = round(ami, 4)
+        ret["ari"] = round(ari, 4)
+        ret["homog"] = round(v_hom, 4)
+
+    return ret
+
+
+def _run_hdbscan_from_shm(
+    shm_name: str,
+    shape: tuple,
+    dtype_str: str,
+    umap_dims: int,
+    mcs: int,
+    min_samples: int,
+    min_samples_pct: int,
+    eps: float,
+    alpha: float,
+    t_umap: float,
+    manual_window=None,
+) -> dict:
+    """CPU multiprocessing wrapper: reads reduced data from shared memory."""
+    shm = SharedMemory(name=shm_name)
+    reduced = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
+    result = _run_single_hdbscan(
+        reduced, umap_dims, mcs, min_samples, min_samples_pct, eps, alpha, t_umap, manual_window
+    )
+    shm.close()
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -143,28 +231,74 @@ def main() -> None:
     parser.add_argument("--neighbors", type=int, default=15, help="UMAP n_neighbors")
     parser.add_argument("--out", type=Path, default=None, help="Save results as CSV")
     parser.add_argument(
-        "--workers", type=int, default=2, help="Parallel workers (default: 2; UMAP uses significant memory per worker)"
+        "--epsilon",
+        type=float,
+        default=0.0,
+        help="HDBSCAN cluster_selection_epsilon (single-run default; sweep uses --epsilons)",
+    )
+    parser.add_argument("--alpha", type=float, default=1.0, help="HDBSCAN alpha")
+    parser.add_argument(
+        "--manual-labels", type=Path, default=None, help="Path to manual labels (Raven format) for supervised metrics"
+    )
+    parser.add_argument(
+        "--npz",
+        type=Path,
+        default=None,
+        help="Path to results.npz to read start_secs from (required if --manual-labels is used)",
+    )
+    parser.add_argument("--window-sec", type=float, default=None, help="Analysis window size in seconds")
+    parser.add_argument(
+        "--workers", type=int, default=2, help="Parallel HDBSCAN workers (CPU only; ignored on GPU; default: 2)"
+    )
+    parser.add_argument("--epsilons", type=str, default="0.0", help="Comma-separated HDBSCAN epsilons")
+    parser.add_argument(
+        "--min-samples-pct",
+        type=str,
+        default="100",
+        help="Comma-separated min_samples as percentage of mcs (default: 100)",
     )
     args = parser.parse_args()
 
     embeddings = np.load(args.embeddings)
     print(f"Embeddings: {embeddings.shape}  ({args.embeddings})")
+    print(f"Backend:    {_BACKEND}")
 
     dims_list = [int(x) for x in args.dims.split(",")]
     mcs_list = [int(x) for x in args.mcs.split(",")]
+    eps_list = [float(x) for x in args.epsilons.split(",")]
+    min_samples_pct_list = [int(x) for x in args.min_samples_pct.split(",")]
     n_neighbors = args.neighbors
-    n_configs = len(dims_list) * len(mcs_list)
-    n_workers = min(args.workers, n_configs)
+    n_hdbscan_combos = len(mcs_list) * len(eps_list) * len(min_samples_pct_list)
+    n_total = len(dims_list) * n_hdbscan_combos
+
+    n_workers = min(args.workers, n_hdbscan_combos)
 
     print(f"UMAP dims:         {dims_list}")
     print(f"min_cluster_size:  {mcs_list}")
+    print(f"min_samples_pct:   {min_samples_pct_list}")
+    print(f"epsilons:          {eps_list}")
     print(f"UMAP n_neighbors:  {n_neighbors}")
-    print(f"Total configs:     {n_configs}")
-    print(f"Workers:           {n_workers}\n")
+    print(f"Total configs:     {n_total}  ({len(dims_list)} UMAP fits × {n_hdbscan_combos} HDBSCAN combos)")
+    print(f"Workers:           {n_workers}  (HDBSCAN only; UMAP runs serially)\n")
+
+    manual_window = None
+    if args.manual_labels and args.npz:
+        print(f"Loading manual labels from {args.manual_labels}")
+        r = np.load(args.npz, allow_pickle=False)
+        start_secs = r["start_secs"]
+        hop_sec = float(np.median(np.diff(start_secs)))
+        window_sec = args.window_sec if args.window_sec else 2 * hop_sec
+        end_secs = start_secs + window_sec
+
+        manual = load_raven_labels(args.manual_labels)
+        manual_window, _ = map_labels_to_windows(manual, start_secs, end_secs)
 
     header = [
         "umap_dims",
         "mcs",
+        "min_samples",
+        "min_samples_pct",
+        "eps",
         "n_clusters",
         "noise_pct",
         "dbcv",
@@ -173,42 +307,84 @@ def main() -> None:
         "max_sz",
         "t_umap_s",
         "t_hdbscan_s",
+        "t_metrics_s",
     ]
-    col_w = [9, 5, 10, 10, 8, 10, 7, 7, 10, 12]
+    col_w = [9, 5, 11, 15, 5, 10, 10, 8, 10, 7, 7, 10, 12, 12]
+
+    if manual_window is not None:
+        header.extend(["detsim", "ami", "ari", "homog"])
+        col_w.extend([8, 8, 8, 8])
 
     def fmt_row(row: dict) -> str:
         vals = [str(row[k]) for k in header]
         return "  ".join(v.rjust(w) for v, w in zip(vals, col_w))
 
-    # Put embeddings in shared memory so worker processes read without copying.
-    emb_shape = embeddings.shape
-    emb_dtype = embeddings.dtype
-    embeddings_c = np.ascontiguousarray(embeddings)
-    del embeddings
-    shm = SharedMemory(create=True, size=embeddings_c.nbytes)
-    shm_arr = np.ndarray(emb_shape, dtype=emb_dtype, buffer=shm.buf)
-    shm_arr[:] = embeddings_c
-    del embeddings_c, shm_arr  # only the shm block holds the data now
-
     print("  ".join(h.rjust(w) for h, w in zip(header, col_w)))
     print("  ".join("-" * w for w in col_w))
 
     rows = []
-    try:
-        initargs = (shm.name, emb_shape, emb_dtype.str)
-        with ProcessPoolExecutor(max_workers=n_workers, initializer=_init_worker, initargs=initargs) as executor:
-            futures = {
-                executor.submit(run_one, dims, mcs, n_neighbors): (dims, mcs) for dims in dims_list for mcs in mcs_list
-            }
-            for f in as_completed(futures):
-                row = f.result()
-                rows.append(row)
-                print(fmt_row(row), flush=True)
-    finally:
-        shm.close()
-        shm.unlink()
 
-    rows.sort(key=lambda r: (r["umap_dims"], r["mcs"]))
+    t_sweep_start = time.perf_counter()
+
+    # Reuse the same ProcessPoolExecutor for the entire script to avoid joblib hangs
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        for umap_dims in dims_list:
+            # Serial UMAP fit
+            print(
+                f"\n  [UMAP] Fitting {umap_dims}-D reduction on {embeddings.shape[0]} embeddings ...",
+                end="",
+                flush=True,
+            )
+            t0 = time.perf_counter()
+            reducer = _UMAP(
+                n_components=umap_dims,
+                n_neighbors=n_neighbors,
+                metric="cosine",
+                random_state=42,
+            )
+            reduced = reducer.fit_transform(embeddings)
+            # cuML may return cupy array
+            if hasattr(reduced, "get"):
+                reduced = reduced.get()
+            reduced = np.ascontiguousarray(reduced, dtype=np.float32)
+            t_umap = time.perf_counter() - t0
+            print(f" done ({t_umap:.1f}s)")
+
+            # Parallel HDBSCAN via shared memory
+            shm = SharedMemory(create=True, size=reduced.nbytes)
+            shm_arr = np.ndarray(reduced.shape, dtype=reduced.dtype, buffer=shm.buf)
+            shm_arr[:] = reduced
+            red_shape = reduced.shape
+            red_dtype = reduced.dtype
+            del shm_arr
+
+            try:
+                futures = {
+                    executor.submit(
+                        _run_hdbscan_from_shm,
+                        shm.name,
+                        red_shape,
+                        red_dtype.str,
+                        umap_dims,
+                        mcs,
+                        max(1, int(mcs * pct / 100)),
+                        pct,
+                        eps,
+                        args.alpha,
+                        t_umap,
+                        manual_window,
+                    ): (umap_dims, mcs, pct, eps)
+                    for mcs, pct, eps in product(mcs_list, min_samples_pct_list, eps_list)
+                }
+                for f in as_completed(futures):
+                    row = f.result()
+                    rows.append(row)
+                    print(fmt_row(row), flush=True)
+            finally:
+                shm.close()
+                shm.unlink()
+
+    rows.sort(key=lambda r: (r["umap_dims"], r["mcs"], r["min_samples"]))
 
     if args.out:
         with open(args.out, "w", newline="") as f:
@@ -216,6 +392,9 @@ def main() -> None:
             writer.writeheader()
             writer.writerows(rows)
         print(f"\nResults saved to {args.out}")
+
+    t_sweep_total = time.perf_counter() - t_sweep_start
+    print(f"\nTotal sweep time: {t_sweep_total:.1f}s")
 
 
 if __name__ == "__main__":

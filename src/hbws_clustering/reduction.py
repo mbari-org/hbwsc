@@ -2,10 +2,28 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import numpy as np
-import umap
+
+# Prefer GPU-accelerated cuML UMAP when available (e.g. Linux + NVIDIA GPU
+# with RAPIDS installed).  Falls back to the CPU umap-learn package otherwise.
+try:
+    import rmm
+    from cuml.manifold import UMAP as _UMAP
+
+    # RMM pool allocator prevents memory fragmentation and cudaMalloc bottlenecks
+    rmm.reinitialize(pool_allocator=True)
+
+    _BACKEND = "cuml"
+except ImportError:
+    import umap
+
+    _UMAP = umap.UMAP
+    _BACKEND = "cpu"
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,11 +50,12 @@ class UmapReducer:
     metric: str = "cosine"
     random_state: int = 42
 
-    _reducer: umap.UMAP = field(init=False, repr=False, default=None)
+    _reducer: _UMAP = field(init=False, repr=False, default=None)
 
     def fit(self, embeddings: np.ndarray) -> "UmapReducer":
         """Fit the reducer on *embeddings* (N, D)."""
-        self._reducer = umap.UMAP(
+        print(f"  UMAP backend: {_BACKEND}")
+        self._reducer = _UMAP(
             n_components=self.n_components,
             n_neighbors=self.n_neighbors,
             min_dist=self.min_dist,
@@ -54,5 +73,13 @@ class UmapReducer:
 
     def fit_transform(self, embeddings: np.ndarray) -> np.ndarray:
         """Fit and project in one step."""
-        self.fit(embeddings)
-        return self.transform(embeddings)
+        print(f"  UMAP backend: {_BACKEND}")
+        if self._reducer is None:
+            self._reducer = _UMAP(
+                n_components=self.n_components,
+                n_neighbors=self.n_neighbors,
+                min_dist=self.min_dist,
+                metric=self.metric,
+                random_state=self.random_state,
+            )
+        return self._reducer.fit_transform(embeddings).astype(np.float32)

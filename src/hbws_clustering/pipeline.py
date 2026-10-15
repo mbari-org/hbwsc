@@ -9,7 +9,7 @@ from typing import Sequence
 import numpy as np
 
 from hbws_clustering.clustering import HdbscanClusterer
-from hbws_clustering.embedding import AVES_BASE_BIO, AvesEmbedder
+from hbws_clustering.embedding import AVES_BASE_BIO, AvesEmbedder, PerchEmbedder
 from hbws_clustering.reduction import UmapReducer
 from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower, Window
 
@@ -61,7 +61,7 @@ class ClusteringPipeline:
     """
 
     windower: AudioWindower | ScoreGuidedWindower = field(default_factory=AudioWindower)
-    embedder: AvesEmbedder = field(default_factory=lambda: AvesEmbedder(model_url=AVES_BASE_BIO))
+    embedder: AvesEmbedder | PerchEmbedder = field(default_factory=lambda: AvesEmbedder(model_url=AVES_BASE_BIO))
     reducer: UmapReducer = field(default_factory=UmapReducer)
     reducer_cluster: UmapReducer | None = None  # high-D UMAP for clustering; None → use reducer
     clusterer: HdbscanClusterer = field(default_factory=HdbscanClusterer)
@@ -75,13 +75,27 @@ class ClusteringPipeline:
         """Run the full pipeline on a list of plain audio files."""
         self._log("Step 1/4: Windowing audio files...")
         windows: list[Window] = []
+        embeddings_parts: list[np.ndarray] = []
+        use_cache = embeddings_cache is not None and embeddings_cache.exists()
+
+        if use_cache:
+            cached = np.load(embeddings_cache)
+            self._log(f"  Loaded embeddings from cache: {embeddings_cache}")
+
         for path in audio_paths:
             file_windows = self.windower.window_file(path)
-            windows.extend(file_windows)
             self._log(f"  {Path(path).name}: {len(file_windows)} windows")
-        self._log(f"  Total windows: {len(windows)}")
+            if not use_cache and file_windows:
+                embeddings_parts.append(self.embedder.embed_windows(file_windows))
+            for w in file_windows:
+                w.audio = None
+            windows.extend(file_windows)
 
-        return self._run_from_windows(windows, embeddings_cache)
+        self._log(f"  Total windows: {len(windows)}")
+        embeddings = self._finalize_embeddings(
+            windows, embeddings_parts, use_cache, cached if use_cache else None, embeddings_cache
+        )
+        return self._run_from_embeddings(windows, embeddings)
 
     def run_scored(self, pairs: Sequence[ScoredPair], embeddings_cache: Path | None = None) -> PipelineResult:
         """Run the pipeline using detector scores to guide windowing.
@@ -107,20 +121,57 @@ class ClusteringPipeline:
 
         self._log("Step 1/4: Score-guided windowing...")
         windows: list[Window] = []
+        embeddings_parts: list[np.ndarray] = []
+        use_cache = embeddings_cache is not None and embeddings_cache.exists()
+
+        if use_cache:
+            cached = np.load(embeddings_cache)
+            self._log(f"  Loaded embeddings from cache: {embeddings_cache}")
+
         for audio_path, scores in pairs:
             file_windows = self.windower.window_file(audio_path, scores)
-            windows.extend(file_windows)
             self._log(f"  {Path(audio_path).name}: {len(file_windows)} windows")
+            if not use_cache and file_windows:
+                embeddings_parts.append(self.embedder.embed_windows(file_windows))
+            for w in file_windows:
+                w.audio = None
+            windows.extend(file_windows)
+
         self._log(f"  Total windows: {len(windows)}")
+        embeddings = self._finalize_embeddings(
+            windows, embeddings_parts, use_cache, cached if use_cache else None, embeddings_cache
+        )
+        return self._run_from_embeddings(windows, embeddings)
 
-        return self._run_from_windows(windows, embeddings_cache)
-
-    def _run_from_windows(self, windows: list[Window], embeddings_cache: Path | None = None) -> PipelineResult:
+    def _finalize_embeddings(
+        self,
+        windows: list[Window],
+        parts: list[np.ndarray],
+        use_cache: bool,
+        cached: np.ndarray | None,
+        cache_path: Path | None,
+    ) -> np.ndarray:
+        """Validate cached embeddings or concatenate per-file parts and save."""
         if not windows:
             raise ValueError("No windows extracted — check audio paths and window/score settings.")
 
-        self._log("Step 2/4: Extracting AVES embeddings...")
-        embeddings = self._load_or_compute_embeddings(windows, embeddings_cache)
+        if use_cache:
+            assert cached is not None
+            if cached.shape[0] != len(windows):
+                raise ValueError(
+                    f"Cache has {cached.shape[0]} rows but {len(windows)} windows. Delete the cache file and re-run."
+                )
+            return cached
+
+        self._log("Step 2/4: Extracting embeddings...")
+        embeddings = np.concatenate(parts, axis=0) if parts else np.empty((0, 0))
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(cache_path, embeddings)
+            self._log(f"  Saved to cache: {cache_path}")
+        return embeddings
+
+    def _run_from_embeddings(self, windows: list[Window], embeddings: np.ndarray) -> PipelineResult:
         self._log(f"  Embeddings shape: {embeddings.shape}")
 
         if self.reducer_cluster is not None:
@@ -155,24 +206,6 @@ class ClusteringPipeline:
             labels=labels,
             probabilities=probabilities,
         )
-
-    def _load_or_compute_embeddings(self, windows: list[Window], cache: Path | None) -> np.ndarray:
-        if cache is not None and cache.exists():
-            embeddings = np.load(cache)
-            if embeddings.shape[0] != len(windows):
-                self._log(f"  WARNING: cache has {embeddings.shape[0]} rows but {len(windows)} windows — recomputing.")
-            else:
-                self._log(f"  Loaded from cache: {cache}")
-                return embeddings
-
-        embeddings = self.embedder.embed_windows(windows)
-
-        if cache is not None:
-            cache.parent.mkdir(parents=True, exist_ok=True)
-            np.save(cache, embeddings)
-            self._log(f"  Saved to cache: {cache}")
-
-        return embeddings
 
     def _log(self, msg: str) -> None:
         if self.verbose:

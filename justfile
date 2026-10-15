@@ -48,7 +48,11 @@ export-all-clusters npz window_sec n="10":
 
 # Plot cluster labels over time (saves <stem>_timeline.png)
 plot-timeline npz:
-    uv run python scripts/plot_timeline.py {{ npz }}
+    uv run python scripts/analyze/plot_timeline.py {{ npz }}
+
+# Plot proportional cluster density over time (saves <stem>_density.png)
+plot-density npz window_sec="5":
+    uv run python scripts/analyze/plot_density.py {{ npz }} --window-sec {{ window_sec }}
 
 # Export Raven Pro selection table (saves <stem>_raven.txt)
 export-raven npz window_sec:
@@ -58,11 +62,16 @@ export-raven npz window_sec:
 aggregate-raven raven_txt:
     uv run python scripts/aggregate_raven.py {{ raven_txt }}
 
-inspect-npz npz="output/results.npz":
+inspect-npz npz:
     uv run python scripts/inspect_npz.py {{ npz }}
 
-plot-umap npz="output/results.npz" out="output/results.png":
-    uv run python scripts/plot_umap.py {{ npz }} {{ out }}
+# Plot UMAP from a results.npz file
+plot-umap npz out="":
+    uv run python scripts/analyze/plot_umap.py {{ npz }} {{ out }}
+
+# Plot a 3D UMAP from a results.npz file
+plot-umap-3d npz out="":
+    uv run python scripts/analyze/plot_umap_3d.py {{ npz }} {{ out }}
 
 # Session-based workflow (reads parameters.yml from the session directory)
 
@@ -78,6 +87,14 @@ run-session dir mcs="":
 sweep-session dir:
     uv run python scripts/session.py {{ dir }} sweep
 
+# Run the embedding hyperparameter sweep for a session
+sweep-embed-session dir:
+    uv run python scripts/session.py {{ dir }} sweep-embed
+
+# Aggregate the results of an embedding sweep
+aggregate-sweep-embed dir:
+    uv run python scripts/session.py {{ dir }} aggregate-sweep-embed
+
 # Generate all analysis outputs for a session run (timeline, umap, raven, clusters)
 analyze-session dir mcs="":
     uv run python scripts/session.py {{ dir }} analyze {{ mcs }}
@@ -86,15 +103,24 @@ analyze-session dir mcs="":
 inspect-session dir mcs="":
     uv run python scripts/session.py {{ dir }} inspect {{ mcs }}
 
+run-inference src_dir targ_dir train_out="" pred_out="":
+    uv run python scripts/train_classifier.py {{ src_dir }}/results.npz {{ train_out }}
+    uv run python scripts/predict.py {{ targ_dir }}/parameters.yml {{ src_dir }}/models/results_model.pkl {{ pred_out }}
+
 
 ###########################
 
-browse_timeline npz segment_minutes='2':
-    uv run python scripts/browse_timeline.py \
-        {{ npz }} \
-        --audio MARS_20161221_000046_SongSession_16kHz_HPF5Hz.wav \
+# Base command for browsing interactively. Pass any extra args using +args
+browse_timeline npz segment_minutes='2' file_index='0' +args="":
+    uv run python scripts/browse_timeline.py {{ npz }} \
         --manual-labels ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt \
-        --segment-minutes {{ segment_minutes }}
+        --segment-minutes {{ segment_minutes }} \
+        --file-index {{ file_index }} \
+        {{ args }}
+
+# Command for exporting timeline to PDF
+export_timeline npz segment_minutes='2' file_index='0' +args="":
+    just browse_timeline {{ npz }} {{ segment_minutes }} {{ file_index }} --export-pdf {{ args }}
 
 # Poster-friendly layout (shorter spectrogram, larger strip fonts) for screenshots.
 browse_timeline_poster npz segment_minutes='2':
@@ -110,10 +136,8 @@ browse_timeline_score0_5 segment_minutes='2':
       experiments/song_20161221_score0.5_w0.5_h0.25/umap15_mcs50/results.npz \
       {{ segment_minutes }}
 
-browse_timeline_full segment_minutes='2':
-    just browse_timeline \
-      experiments/song_20161221_full_w0.5_h0.25/umap20_mcs200/results.npz \
-      {{ segment_minutes }}
+browse_timeline_full segment_minutes='2' +args="":
+    just browse_timeline experiments/song_20161221_full_w0.5_h0.25/umap20_mcs200/results.npz {{ segment_minutes }} 0 {{ args }}
 
 ###########################
 ## GPU
@@ -137,6 +161,10 @@ gpu_embeddings batch_size:
 
 
 ###########################
+## Run Cluster-Eval Pipeline
+cluster_eval train_dir eval_dir audio="../../MARS_20161221_000046_32kHz.wav" labels="../../ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt":
+    uv run python scripts/session.py {{ train_dir }} evaluate-generalization {{ eval_dir }} --drop-noise --eval-audio {{ audio }} --eval-labels {{ labels }}
+
 
 # Install uv (if not already installed)
 install-uv:

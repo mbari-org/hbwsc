@@ -1,6 +1,6 @@
 # hbwsc
 
-Humpback whale vocalization analysis using [AVES](https://github.com/earthspecies/aves)
+Humpback whale vocalization analysis using [AVES](https://github.com/earthspecies/aves) and [Perch](https://tfhub.dev/google/bird-vocalization-classifier/4)
 bioacoustic embeddings, UMAP dimensionality reduction, and HDBSCAN clustering.
 
 Integrates with the
@@ -16,7 +16,7 @@ to restrict the clustering to high-confidence whale song regions.
 > with Claude (Anthropic) while building the code and conducting initial exploration.
 > Various aspects have been revised during these exchanges,
 > but no exhaustive review or independent validation has been performed.
-
+> Update: This excersize has been updated and expanded upon.
 ## Running
 
 Requires [uv](https://docs.astral.sh/uv/).
@@ -74,6 +74,23 @@ just inspect-npz results.npz   # per-cluster count table with UMAP centroids
 just plot-umap results.npz     # saves results.png
 ```
 
+### Interactive Timeline & PDF Export
+
+You can interactively browse the resulting clusters overlaid on a spectrogram by passing the `.npz` file:
+```bash
+just browse_timeline experiments/song_20161221_w0.5_h0.25/mcs100/results.npz
+```
+This launches a browser-based UI where you can listen to clusters and inspect their spectrograms. You can also export the timeline as a multi-page PDF using the `export_timeline` command.
+
+### EXPERIMENTAL: Generalization Evaluation Pipeline
+
+The clustering pipeline can be evaluated for generalizability across different audio sessions.
+You can train a Random Forest classifier on one session and evaluate it on another:
+```bash
+just cluster_eval experiments/train_session experiments/eval_session
+```
+This trains a classifier using the embeddings from the `train_session`, drops ambiguous noise clusters, and evaluates performance against manual labels on the `eval_session`.
+
 ### All CLI options
 
 | Option | Default | Description |
@@ -113,10 +130,10 @@ exactly one embedding vector. This choice involves a tradeoff:
 Step between successive window starts. More overlap gives finer temporal coverage but also more redundancy:
 adjacent windows will be very similar, which can inflate cluster sizes without adding new information.
 
-### Step 2 — AVES embeddings
+### Step 2 — Embeddings (AVES & Perch)
 
-Each window becomes one 768-dimensional vector. AVES was pretrained on bioacoustic audio so it captures
-acoustic structure meaningful to animal vocalizations.
+Each window is converted into a high-dimensional vector. By default, this uses AVES (768 dimensions), which was pretrained on bioacoustic audio and captures acoustic structure meaningful to animal vocalizations. 
+The pipeline has also been expanded to support Google's **Perch 2.0** model, providing an alternative embedding space for comparison.
 Nothing to tune here except `--batch-size` for throughput (default 16 on CPU; 64–128 on GPU).
 
 > **Note on input audio quality.** AVES (like its parent HuBERT) takes raw waveform with no
@@ -300,10 +317,21 @@ print(windows_c0[:5])
 ```
 hbws_clustering/
 ├── pyproject.toml
-├── justfile                   # recipes: run, inspect-npz, plot-umap
+├── justfile                   # recipes: run, inspect-npz, plot-umap, session workflow, ML evaluation
+├── SESSION.md                 # documentation for the session-based workflow
 ├── scripts/
+│   ├── session.py             # central orchestrator for clustering sessions
+│   ├── browse_timeline.py     # interactive timeline viewer and PDF exporter
+│   ├── evaluate_generalization.py # ML generalization evaluation pipeline
+│   ├── train_classifier.py    # Random Forest classifier training
+│   ├── predict.py             # inference script for classifier
+│   ├── sweep.py               # hyperparameter search
+│   ├── analyze/               # one-off plotting and visualization scripts
+│   │   ├── plot_umap.py       # UMAP scatter plot
+│   │   ├── plot_density.py    # proportional cluster density over time
+│   │   └── ...
 │   ├── inspect_npz.py         # per-cluster summary table
-│   └── plot_umap.py           # UMAP scatter plot
+│   └── ...                    # various other export utilities
 ├── src/hbws_clustering/
 │   ├── __init__.py
 │   ├── __main__.py            # hbws-cluster CLI (typer)

@@ -2,10 +2,27 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
-import hdbscan
 import numpy as np
+
+# Prefer GPU-accelerated cuML HDBSCAN when available (e.g. Linux + NVIDIA GPU
+# with RAPIDS installed).  Falls back to the CPU hdbscan package otherwise.
+try:
+    import rmm
+    from cuml.cluster import HDBSCAN as _HDBSCAN
+
+    rmm.reinitialize(pool_allocator=True)
+
+    _BACKEND = "cuml"
+except ImportError:
+    import hdbscan
+
+    _HDBSCAN = hdbscan.HDBSCAN
+    _BACKEND = "cpu"
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,18 +49,21 @@ class HdbscanClusterer:
     min_cluster_size: int = 5
     min_samples: int | None = None
     cluster_selection_epsilon: float = 0.0
+    alpha: float = 1.0
     metric: str = "euclidean"
     cluster_selection_method: str = "eom"
 
-    _clusterer: hdbscan.HDBSCAN = field(init=False, repr=False, default=None)
+    _clusterer: _HDBSCAN = field(init=False, repr=False, default=None)
 
     def fit(self, reduced: np.ndarray) -> "HdbscanClusterer":
         """Fit on *reduced* (N, d) projected embeddings."""
+        print(f"  HDBSCAN backend: {_BACKEND}")
         min_samples = self.min_samples if self.min_samples is not None else self.min_cluster_size
-        self._clusterer = hdbscan.HDBSCAN(
+        self._clusterer = _HDBSCAN(
             min_cluster_size=self.min_cluster_size,
             min_samples=min_samples,
             cluster_selection_epsilon=self.cluster_selection_epsilon,
+            alpha=self.alpha,
             metric=self.metric,
             cluster_selection_method=self.cluster_selection_method,
         )

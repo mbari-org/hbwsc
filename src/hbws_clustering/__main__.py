@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +16,16 @@ app = typer.Typer(help="Humpback whale vocalization clustering via AVES + UMAP +
 _AVES_BASE_BIO_URL = "https://storage.googleapis.com/esp-public-files/ported_aves/aves-base-bio.torchaudio.pt"
 
 _WAV_DATE_RE = re.compile(r"MARS-(\d{4})(\d{2})(\d{2})T")
+
+
+class EmbedderType(str, Enum):
+    aves = "aves"
+    perch = "perch"
+
+
+class PaddingType(str, Enum):
+    repeat = "repeat"
+    zero = "zero"
 
 
 def _score_path(audio_path: Path, score_dir: Path) -> Path:
@@ -62,7 +74,11 @@ def run(
     window_sec: float = typer.Option(2.0, help="Window duration in seconds."),
     hop_sec: Optional[float] = typer.Option(None, help="Window hop in seconds (default = window_sec)."),
     sample_rate: int = typer.Option(16_000, help="Target sample rate for resampling."),
-    model: str = typer.Option(_AVES_BASE_BIO_URL, help="URL to a TorchAudio AVES checkpoint (.pt)."),
+    embedder_type: EmbedderType = typer.Option(EmbedderType.aves, help="Type of embedder to use ('aves' or 'perch')."),
+    perch_padding: PaddingType = typer.Option(
+        PaddingType.repeat, "--perch-padding", help="Perch padding mode: 'repeat' (tile audio) or 'zero' (zero-fill)."
+    ),
+    model: Optional[str] = typer.Option(None, help="URL to an AVES or Perch checkpoint."),
     pooling: str = typer.Option("mean", help="Embedding pooling: 'mean' or 'max'."),
     batch_size: int = typer.Option(16, help="AVES inference batch size. Increase (e.g. 64, 128) on GPU."),
     umap_components: int = typer.Option(2, help="UMAP dimensions for visualization (2-D scatter plot)."),
@@ -73,6 +89,9 @@ def run(
     ),
     umap_neighbors: int = typer.Option(15, help="UMAP n_neighbors."),
     min_cluster_size: int = typer.Option(5, help="HDBSCAN min_cluster_size."),
+    min_samples: Optional[int] = typer.Option(None, help="HDBSCAN min_samples (defaults to min_cluster_size)."),
+    alpha: float = typer.Option(1.0, help="HDBSCAN alpha (distance scaling)."),
+    epsilon: float = typer.Option(0.0, help="HDBSCAN cluster_selection_epsilon."),
     embeddings_cache: Optional[Path] = typer.Option(
         None,
         "--embeddings-cache",
@@ -91,7 +110,7 @@ def run(
     import numpy as np
 
     from hbws_clustering.clustering import HdbscanClusterer
-    from hbws_clustering.embedding import AvesEmbedder
+    from hbws_clustering.embedding import AvesEmbedder, PerchEmbedder
     from hbws_clustering.pipeline import ClusteringPipeline
     from hbws_clustering.reduction import UmapReducer
     from hbws_clustering.windowing import AudioWindower, ScoreGuidedWindower
@@ -100,6 +119,25 @@ def run(
         raise typer.BadParameter("--score-dir and --score-file are mutually exclusive.")
     if score_file is not None and len(audio_files) != 1:
         raise typer.BadParameter("--score-file requires exactly one audio file.")
+
+    if embedder_type == EmbedderType.perch:
+        if sample_rate != 32000:
+            raise typer.BadParameter("Perch requires --sample-rate 32000")
+        # if window_sec != 5.0:
+        #     raise typer.BadParameter("Perch requires --window-sec 5.0")
+        if model:
+            embedder = PerchEmbedder(model_url=model, batch_size=batch_size, padding=perch_padding.value)
+        else:
+            embedder = PerchEmbedder(batch_size=batch_size, padding=perch_padding.value)
+    else:
+        #     if sample_rate != 16000:
+        #         raise typer.BadParameter("AVES requires --sample-rate 16000")
+        #     if window_sec != 2.0:
+        #         raise typer.BadParameter("AVES requires --window-sec 2.0")
+        if model:
+            embedder = AvesEmbedder(model_url=model, pooling=pooling, batch_size=batch_size)
+        else:
+            embedder = AvesEmbedder(pooling=pooling, batch_size=batch_size)
 
     inner_windower = AudioWindower(window_sec=window_sec, hop_sec=hop_sec, target_sr=sample_rate)
 
@@ -117,10 +155,12 @@ def run(
 
     pipe = ClusteringPipeline(
         windower=windower,
-        embedder=AvesEmbedder(model_url=model, pooling=pooling, batch_size=batch_size),
+        embedder=embedder,
         reducer=reducer_viz,
         reducer_cluster=reducer_cluster,
-        clusterer=HdbscanClusterer(min_cluster_size=min_cluster_size),
+        clusterer=HdbscanClusterer(
+            min_cluster_size=min_cluster_size, min_samples=min_samples, alpha=alpha, cluster_selection_epsilon=epsilon
+        ),
     )
 
     if score_file is not None:
@@ -138,6 +178,8 @@ def run(
         typer.echo(f"  {tag}: {count} windows")
 
     if output is not None:
+        # Can be changed, add directory if doesnt exist when running inference
+        output.parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             output,
             labels=result.labels,
@@ -146,7 +188,7 @@ def run(
             reduced_cluster=result.reduced_cluster,
             embeddings=result.embeddings,
             start_secs=np.array([w.start_sec for w in result.windows]),
-            source_files=np.array([str(w.source_file) for w in result.windows]),
+            source_files=np.array([os.path.relpath(w.source_file) for w in result.windows]),
         )
         typer.echo(f"\nResults saved to {output}")
 

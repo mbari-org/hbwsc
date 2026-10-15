@@ -32,8 +32,17 @@ import matplotlib.ticker as mticker
 import matplotlib.widgets as mwidgets
 import numpy as np
 import soundfile as sf
+import yaml
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+import sys
+
 from scipy.signal import spectrogram as scipy_spectrogram
-from sklearn.metrics import normalized_mutual_info_score, homogeneity_score
+
+from hbws_clustering.colors import extract_colors_from_npz
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from hbws_clustering.evaluation import compute_metrics, map_labels_to_windows
 
 _IS_MACOS = platform.system() == "Darwin"
 if not _IS_MACOS:
@@ -71,19 +80,43 @@ else:
 # ---------------------------------------------------------------------------
 
 r = np.load(args.npz, allow_pickle=False)
-labels = r["labels"]
-start_secs = r["start_secs"]
+source_files_array = r["source_files"].astype(str)
+
+unique_files = []
+for f in source_files_array:
+    if f not in unique_files:
+        unique_files.append(f)
+
+if args.file_index >= len(unique_files):
+    print(f"ERROR: --file-index {args.file_index} is out of bounds. The npz contains {len(unique_files)} files.")
+    sys.exit(1)
+
+selected_file_str = unique_files[args.file_index]
+file_mask = source_files_array == selected_file_str
+
+labels = r["labels"][file_mask]
+start_secs = r["start_secs"][file_mask]
+
+print(f"\n--- Browsing file {args.file_index + 1}/{len(unique_files)} ---")
+print(f"File: {selected_file_str}")
+print(f"Windows in this file: {len(labels)}\n")
 
 unique_labels = sorted(np.unique(labels).tolist())
 cluster_labels = [lbl for lbl in unique_labels if lbl >= 0]
 n_clusters = len(cluster_labels)
 
-cmap = plt.get_cmap("tab10" if n_clusters <= 10 else "tab20")
-colours = {lbl: cmap(i / max(n_clusters - 1, 1)) for i, lbl in enumerate(cluster_labels)}
-colours[-1] = (0.75, 0.75, 0.75, 0.4)
+probabilities = r.get("probabilities")
+reduced = r.get("reduced")
+reduced_3d = r.get("reduced_3d")
+
+if "cluster_color_keys" not in r and args.color == "3D" and reduced_3d is None:
+    print("3D UMAP not found, run plot-3D")
+
+colors = extract_colors_from_npz(dict(r), color_mode=args.color)
 
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0
 x_minutes = start_secs / 60.0
+
 
 # ---------------------------------------------------------------------------
 # Load manual labels (Raven format)
@@ -115,12 +148,11 @@ if args.manual_labels:
 if args.audio:
     audio_path = args.audio
 else:
-    source_files = r["source_files"].astype(str).tolist()
-    audio_path = Path(source_files[0])
+    audio_path = Path(selected_file_str)
     if not audio_path.exists():
         audio_path = args.npz.parent.parent.parent / audio_path.name
     if not audio_path.exists():
-        print(f"ERROR: audio file not found: {source_files[0]}")
+        print(f"ERROR: audio file not found: {selected_file_str}")
         print("Use --audio to specify the WAV file.")
         sys.exit(1)
 
@@ -131,6 +163,24 @@ if audio.ndim > 1:
 print(f"Audio: {len(audio) / sample_rate:.1f}s  @{sample_rate}Hz")
 
 # ---------------------------------------------------------------------------
+# Session params & spectrogram type
+# ---------------------------------------------------------------------------
+
+session_dir = args.npz.parent.parent
+params = {}
+try:
+    with open(session_dir / "parameters.yml") as f:
+        params = yaml.safe_load(f)
+except Exception:
+    pass
+
+model = params.get("embedder_type", "unknown")
+
+spec_type = args.spectrogram_type
+if spec_type == "auto":
+    spec_type = "perch" if "perch" in str(args.npz).lower() or model == "perch" else "default"
+
+# ---------------------------------------------------------------------------
 # Segment state
 # ---------------------------------------------------------------------------
 
@@ -139,13 +189,13 @@ total_minutes = x_minutes.max()
 n_segments = int(np.ceil(total_minutes / seg_minutes))
 seg_idx = [0]
 playing = [False]
-play_start_wall   = [0.0]   # wall-clock time when playback began (adjusted for pause)
-play_start_min    = [0.0]   # timeline position (minutes) at play start
-pause_offset_sec  = [0.0]   # elapsed seconds at last pause
-vline = [None]              # vertical playhead Line2D on ax_spec (animated)
-_bg   = [None]              # blitting background snapshot
-_audio_proc = [None]        # afplay subprocess (macOS only)
-_tmp_wav    = [None]        # path to current temp WAV (macOS only)
+play_start_wall = [0.0]  # wall-clock time when playback began (adjusted for pause)
+play_start_min = [0.0]  # timeline position (minutes) at play start
+pause_offset_sec = [0.0]  # elapsed seconds at last pause
+vline = [None]  # vertical playhead Line2D on ax_spec (animated)
+_bg = [None]  # blitting background snapshot
+_audio_proc = [None]  # afplay subprocess (macOS only)
+_tmp_wav = [None]  # path to current temp WAV (macOS only)
 
 # Precompute per-segment local Jaccard for "best alignment" button.
 # When manual labels are present, also build a per-window class-index array
@@ -154,18 +204,18 @@ is_clustered = labels >= 0
 is_labelled = np.zeros(len(labels), dtype=bool)
 manual_window = np.full(len(labels), -1, dtype=int)
 unique_types_idx: dict[str, int] = {}
+
 if manual_labels:
-    unique_types_idx = {t: i for i, t in enumerate(sorted(set(t for _, _, t in manual_labels)))}
-    end_secs = r["start_secs"] + 0.5  # window_sec
-    best_overlap = np.zeros(len(labels), dtype=float)
-    for begin_min, end_min, ltype in manual_labels:
-        b, e = begin_min * 60, end_min * 60
-        overlap = np.minimum(end_secs, e) - np.maximum(r["start_secs"], b)
-        np.clip(overlap, 0.0, None, out=overlap)
-        better = overlap > best_overlap
-        best_overlap = np.where(better, overlap, best_overlap)
-        manual_window = np.where(better, unique_types_idx[ltype], manual_window)
+    _w_sec = params.get("window_sec")
+    if _w_sec is None:
+        _w_sec = 2 * params.get("hop_sec", 0.25)
+    end_secs = start_secs + float(_w_sec)
+
+    # Convert UI minute labels back to seconds for the mapper
+    manual_sec = [(b * 60, e * 60, t) for b, e, t in manual_labels]
+    manual_window, unique_types_idx = map_labels_to_windows(manual_sec, start_secs, end_secs)
     is_labelled = manual_window >= 0
+
 
 def _segment_metrics(t_min: float, t_max: float) -> dict | None:
     """DetSim (Jaccard), NMI, Homogeneity for windows in [t_min, t_max) minutes.
@@ -175,24 +225,26 @@ def _segment_metrics(t_min: float, t_max: float) -> dict | None:
     if not manual_labels:
         return None
     mask = (x_minutes >= t_min) & (x_minutes < t_max)
-    c = is_clustered[mask]
-    m = is_labelled[mask]
-    inter = c & m
-    union = c | m
-    detsim = inter.sum() / union.sum() if union.any() else 0.0
-    if inter.sum() < 2:
-        return {"detsim": detsim, "nmi": float("nan"), "homog": float("nan")}
-    seg_labels = labels[mask][inter]
-    seg_manual = manual_window[mask][inter]
-    nmi = normalized_mutual_info_score(seg_manual, seg_labels)
-    homog = homogeneity_score(seg_manual, seg_labels)
-    return {"detsim": detsim, "nmi": nmi, "homog": homog}
+    metrics = compute_metrics(labels[mask], manual_window[mask])
 
+    # Map back to old keys expected by the UI for now
+    return {"detsim": metrics["DetSim"], "ami": metrics["AMI"], "ari": metrics["ARI"], "homog": metrics["Homogeneity"]}
+
+
+overall_metrics = _segment_metrics(0, total_minutes)
+if overall_metrics is not None:
+    o_ami = "—" if np.isnan(overall_metrics["ami"]) else f"{overall_metrics['ami']:.2f}"
+    o_ari = "—" if np.isnan(overall_metrics["ari"]) else f"{overall_metrics['ari']:.2f}"
+    o_hom = "—" if np.isnan(overall_metrics["homog"]) else f"{overall_metrics['homog']:.2f}"
+    overall_metrics_str = f" | TOTAL DetSim:{overall_metrics['detsim']:.2f} AMI:{o_ami} ARI:{o_ari} Homog:{o_hom}"
+else:
+    overall_metrics_str = ""
 
 # Precompute per-segment metrics for the "best" buttons
 seg_detsim = np.zeros(n_segments)
-seg_nmi    = np.zeros(n_segments)
-seg_homog  = np.zeros(n_segments)
+seg_ami = np.zeros(n_segments)
+seg_ari = np.zeros(n_segments)
+seg_homog = np.zeros(n_segments)
 for i in range(n_segments):
     t_min = i * seg_minutes
     t_max = min(t_min + seg_minutes, total_minutes)
@@ -204,14 +256,16 @@ for i in range(n_segments):
         seg_detsim[i] = is_clustered[mask].mean() if mask.any() else 0.0
     else:
         seg_detsim[i] = metr["detsim"]
-        seg_nmi[i]    = 0.0 if np.isnan(metr["nmi"])   else metr["nmi"]
-        seg_homog[i]  = 0.0 if np.isnan(metr["homog"]) else metr["homog"]
+        seg_ami[i] = 0.0 if np.isnan(metr["ami"]) else metr["ami"]
+        seg_ari[i] = 0.0 if np.isnan(metr["ari"]) else metr["ari"]
+        seg_homog[i] = 0.0 if np.isnan(metr["homog"]) else metr["homog"]
 best_seg_detsim = int(np.argmax(seg_detsim))
-best_seg_nmi    = int(np.argmax(seg_nmi))
-best_seg_homog  = int(np.argmax(seg_homog))
+best_seg_ami = int(np.argmax(seg_ami))
+best_seg_ari = int(np.argmax(seg_ari))
+best_seg_homog = int(np.argmax(seg_homog))
 
 # ---------------------------------------------------------------------------
-# Figure layout  (add manual strip if labels provided)
+# Shared rendering function
 # ---------------------------------------------------------------------------
 
 fig = plt.figure(figsize=(20, 9 if manual_labels else 7))
@@ -264,7 +318,8 @@ def fmt_hm(minutes):
     return f"{h}:{m:02d}:{s:02d}"
 
 
-def draw(idx):
+def render_segment(idx, ax_spec, ax_time, ax_manu):
+    """Render segment *idx* onto the given axes (clears them first)."""
     t_min = idx * seg_minutes
     t_max = min(t_min + seg_minutes, total_minutes)
 
@@ -273,24 +328,111 @@ def draw(idx):
     s1 = int(t_max * 60 * sample_rate)
     chunk = audio[s0:s1]
 
-    nperseg = min(512, len(chunk))
-    freqs, times, Sxx = scipy_spectrogram(chunk, fs=sample_rate, nperseg=nperseg, noverlap=nperseg * 3 // 4)
-    Sxx_db = 10 * np.log10(Sxx + 1e-10)
+    if spec_type == "perch":
+        import librosa
 
-    ax_spec.cla()
-    ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto",
-                       cmap="Blues_r", rasterized=True)
+        target_sr = 32000
+        if sample_rate != target_sr:
+            spec_chunk = librosa.resample(chunk, orig_sr=sample_rate, target_sr=target_sr)
+        else:
+            spec_chunk = chunk.copy()
+
+        embed_window_sec = params.get("window_sec", 2.0)
+        embed_window_len = int(float(embed_window_sec) * target_sr)
+
+        for i in range(0, len(spec_chunk), embed_window_len):
+            chunk_slice = spec_chunk[i : i + embed_window_len]
+            peak = np.abs(chunk_slice).max()
+            if peak > 1e-8:
+                spec_chunk[i : i + len(chunk_slice)] = chunk_slice * (0.25 / peak)
+
+        # Front pad 160 samples for exact frame origin alignment
+        spec_chunk = np.pad(spec_chunk, (160, 0), mode="constant")
+
+        n_fft = 1024
+        hop_length = 320
+        win_length = 640
+
+        D = librosa.stft(
+            spec_chunk, n_fft=n_fft, hop_length=hop_length, win_length=win_length, center=False, window="hann"
+        )
+        mag = np.abs(D)
+
+        window = librosa.filters.get_window("hann", win_length)
+        scale = 1.0 / window.sum()
+        mag = mag * scale
+
+        n_mels = 128
+        fmin = 60
+        fmax = 16000
+        mel_basis = librosa.filters.mel(sr=target_sr, n_fft=n_fft, n_mels=n_mels, fmin=fmin, fmax=fmax, htk=True)
+        mel_spec = np.dot(mel_basis, mag)
+
+        # DC bin zeroed: Bin 0 set to 0 after filterbank
+        mel_spec[0, :] = 0.0
+
+        log_mel = np.log(np.maximum(mel_spec, 1e-5))
+        Sxx_db = log_mel * 0.1
+
+        mel_freqs_hz = librosa.mel_frequencies(n_mels=n_mels, fmin=fmin, fmax=fmax, htk=True)
+        mel_bins = np.arange(n_mels)
+        times = librosa.frames_to_time(np.arange(Sxx_db.shape[1]), sr=target_sr, hop_length=hop_length)
+
+        ax_spec.cla()
+        ax_spec.pcolormesh(times / 60 + t_min, mel_bins, Sxx_db, shading="auto", cmap="Blues_r", rasterized=True)
+        # Label y-axis ticks with actual Hz values at evenly-spaced mel bin positions
+        tick_bins = np.linspace(0, n_mels - 1, 8, dtype=int)
+        ax_spec.set_yticks(tick_bins)
+        ax_spec.set_yticklabels([f"{int(mel_freqs_hz[b])}" for b in tick_bins])
+        ax_spec.set_ylabel("Freq (Hz, Mel scale)")
+    else:
+        nperseg = min(512, len(chunk))
+        freqs, times, Sxx = scipy_spectrogram(chunk, fs=sample_rate, nperseg=nperseg, noverlap=nperseg * 3 // 4)
+        Sxx_db = 10 * np.log10(Sxx + 1e-10)
+
+        ax_spec.cla()
+        ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto", cmap="Blues_r", rasterized=True)
+        ax_spec.set_ylabel("Freq (Hz)")
+
     ax_spec.set_xlim(t_min, t_max)
-    ax_spec.set_ylabel("Freq (Hz)")
     metrics = _segment_metrics(t_min, t_max)
-    title = f"{args.npz.parent.name}  [{fmt_hm(t_min)} – {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
-    if metrics is not None:
-        nmi = "—" if np.isnan(metrics["nmi"]) else f"{metrics['nmi']:.2f}"
-        hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
-        title += f"   DetSim: {metrics['detsim']:.2f}   NMI: {nmi}   Homog: {hom}"
-    ax_spec.set_title(title)
+
+    w_sec = params.get("window_sec", "?")
+    h_sec = params.get("hop_sec", "?")
+    eps = params.get("hdbscan_epsilon", 0.0)
+
+    if args.title_mode == "debug":
+        title_prefix = (
+            f"{audio_path.name} | {model} | w:{w_sec}s h:{h_sec}s | eps:{eps}"
+            + f"| {args.npz.parent.name}{overall_metrics_str}"
+        )
+        title = f"{title_prefix}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]  (seg {idx + 1}/{n_segments})"
+
+        if metrics is not None:
+            ami = "—" if np.isnan(metrics["ami"]) else f"{metrics['ami']:.2f}"
+            ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
+            hom = "—" if np.isnan(metrics["homog"]) else f"{metrics['homog']:.2f}"
+            title += f"   (seg metrics: DetSim:{metrics['detsim']:.2f} AMI:{ami} ARI:{ari} Homog:{hom})"
+        title_fontsize = 13
+    elif args.title_mode == "presentation":
+        title = "Automated Clustering vs. Manual Annotations"
+        title_fontsize = 16
+    elif args.title_mode == "paper":
+        title = f"{args.dataset_name}  [{fmt_hm(t_min)} - {fmt_hm(t_max)}]"
+        if metrics is not None:
+            # ami = "—" if np.isnan(metrics["ami"]) else f"{metrics['ami']:.2f}"
+            ari = "—" if np.isnan(metrics["ari"]) else f"{metrics['ari']:.2f}"
+            title += f"  (Window ARI: {ari})"
+        if overall_metrics is not None:
+            # o_ami = "—" if np.isnan(overall_metrics["ami"]) else f"{overall_metrics['ami']:.2f}"
+            o_ari = "—" if np.isnan(overall_metrics["ari"]) else f"{overall_metrics['ari']:.2f}"
+            title += f"  (Session ARI: {o_ari})"
+        title_fontsize = 15
+
+    if seg_minutes <= 32:
+        ax_spec.set_title(title, fontsize=title_fontsize)
     ax_spec.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-    ax_spec.tick_params(labelbottom=False)
+    ax_spec.tick_params(labelsize=10, labelbottom=False)
 
     # --- cluster strip --------------------------------------------------------
     ax_time.cla()
@@ -301,8 +443,14 @@ def draw(idx):
             continue
         tag = "noise" if lbl == -1 else f"cluster {lbl}"
         ax_time.bar(
-            x_minutes[mask], height=1.0, width=hop_minutes, bottom=-0.5,
-            color=colours[lbl], linewidth=0, label=tag, align="edge",
+            x_minutes[mask],
+            height=1.0,
+            width=hop_minutes,
+            bottom=-0.5,
+            color=colors[lbl],
+            linewidth=0,
+            label=tag,
+            align="edge",
         )
     ax_time.set_xlim(t_min, t_max)
     ax_time.set_ylim(-0.5, 0.5)
@@ -349,16 +497,108 @@ def draw(idx):
             ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
                            ncol=min(len(manual_colours), 15), fontsize=STRIP_FS, framealpha=0.8, borderaxespad=0)
     else:
-        ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
-        ax_time.set_xlabel("Time (h:mm:ss)")
+        pdf_path = args.export_pdf
+
+    print(f"Exporting {n_segments} segments to {pdf_path} ...")
+
+    with PdfPages(str(pdf_path)) as pdf:
+        for si in range(n_segments):
+            if seg_minutes > 32:
+                fig_exp = plt.figure(figsize=(20, 6))
+            else:
+                fig_exp = plt.figure(figsize=(20, 10 if manual_labels else 8))
+
+            if seg_minutes > 32:
+                if manual_labels:
+                    ax_spec = fig_exp.add_axes([0.05, 0.68, 0.93, 0.22])
+                    ax_time = fig_exp.add_axes([0.05, 0.41, 0.93, 0.22])
+                    ax_manu = fig_exp.add_axes([0.05, 0.14, 0.93, 0.22])
+                else:
+                    ax_spec = fig_exp.add_axes([0.05, 0.68, 0.93, 0.22])
+                    ax_time = fig_exp.add_axes([0.05, 0.41, 0.93, 0.22])
+                    ax_manu = None
+            else:
+                if manual_labels:
+                    ax_spec = fig_exp.add_axes([0.05, 0.50, 0.93, 0.39])
+                    ax_time = fig_exp.add_axes([0.05, 0.32, 0.93, 0.16])
+                    ax_manu = fig_exp.add_axes([0.05, 0.14, 0.93, 0.16])
+                else:
+                    ax_spec = fig_exp.add_axes([0.05, 0.41, 0.93, 0.51])
+                    ax_time = fig_exp.add_axes([0.05, 0.14, 0.93, 0.25])
+                    ax_manu = None
+
+            render_segment(si, ax_spec, ax_time, ax_manu)
+            pdf.savefig(fig_exp, dpi=150)
+            plt.close(fig_exp)
+            print(f"  segment {si + 1}/{n_segments}", end="\r")
+
+    print(f"\nDone! Saved to {pdf_path}")
+    sys.exit(0)
+
+# create the figure
+if seg_minutes > 32:
+    fig = plt.figure(figsize=(20, 8))
+else:
+    fig = plt.figure(figsize=(20, 10 if manual_labels else 8))
+
+if seg_minutes > 32:
+    if manual_labels:
+        ax_spec = fig.add_axes([0.05, 0.68, 0.93, 0.22])
+        ax_time = fig.add_axes([0.05, 0.41, 0.93, 0.22])
+        ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.22])
+    else:
+        ax_spec = fig.add_axes([0.05, 0.68, 0.93, 0.22])
+        ax_time = fig.add_axes([0.05, 0.41, 0.93, 0.22])
+        ax_manu = None
+else:
+    if manual_labels:
+        ax_spec = fig.add_axes([0.05, 0.50, 0.93, 0.39])
+        ax_time = fig.add_axes([0.05, 0.32, 0.93, 0.16])
+        ax_manu = fig.add_axes([0.05, 0.14, 0.93, 0.16])
+    else:
+        ax_spec = fig.add_axes([0.05, 0.41, 0.93, 0.51])
+        ax_time = fig.add_axes([0.05, 0.14, 0.93, 0.25])
+        ax_manu = None
+
+bw = 0.05  # button width
+ax_first = fig.add_axes([0.06, 0.02, bw, 0.07])
+ax_prev = fig.add_axes([0.12, 0.02, bw, 0.07])
+ax_next = fig.add_axes([0.18, 0.02, bw, 0.07])
+ax_last = fig.add_axes([0.24, 0.02, bw, 0.07])
+ax_play = fig.add_axes([0.40, 0.02, bw, 0.07])
+ax_rewind = fig.add_axes([0.46, 0.02, bw, 0.07])
+ax_best_d = fig.add_axes([0.55, 0.02, bw, 0.07])
+
+btn_first = mwidgets.Button(ax_first, "|◀ First")
+btn_prev = mwidgets.Button(ax_prev, "◀  Prev")
+btn_next = mwidgets.Button(ax_next, "Next  ▶")
+btn_last = mwidgets.Button(ax_last, "Last ▶|")
+btn_play = mwidgets.Button(ax_play, "▶  Play")
+btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
+btn_best_d = mwidgets.Button(ax_best_d, "★ DetSim")
+
+# AMI / ARI / Homogeneity best-segment buttons only when manual labels are loaded
+btn_best_a_m = btn_best_a = btn_best_h = None
+if manual_labels:
+    ax_best_a_m = fig.add_axes([0.61, 0.02, bw, 0.07])
+    ax_best_a = fig.add_axes([0.67, 0.02, bw, 0.07])
+    ax_best_h = fig.add_axes([0.73, 0.02, bw, 0.07])
+    btn_best_a_m = mwidgets.Button(ax_best_a_m, "★ AMI")
+    btn_best_a = mwidgets.Button(ax_best_a, "★ ARI")
+    btn_best_h = mwidgets.Button(ax_best_h, "★ Homog")
+
+
+# interactive wrapper
+def draw(idx):
+    render_segment(idx, ax_spec, ax_time, ax_manu)
 
     # Full synchronous draw, then snapshot background (vline excluded via animated=True)
     fig.canvas.draw()
     _bg[0] = fig.canvas.copy_from_bbox(fig.bbox)
 
     # Recreate animated playhead (not drawn during normal renders)
-    vline[0] = ax_spec.axvline(x=t_min, color="white", linewidth=1.2,
-                                alpha=0.85, animated=True, zorder=10)
+    t_min = idx * seg_minutes
+    vline[0] = ax_spec.axvline(x=t_min, color="white", linewidth=1.2, alpha=0.85, animated=True, zorder=10)
 
 
 def _kill_afplay():
@@ -434,9 +674,15 @@ def on_best_detsim(_event):
     draw(seg_idx[0])
 
 
-def on_best_nmi(_event):
+def on_best_ami(_event):
     stop_playback()
-    seg_idx[0] = best_seg_nmi
+    seg_idx[0] = best_seg_ami
+    draw(seg_idx[0])
+
+
+def on_best_ari(_event):
+    stop_playback()
+    seg_idx[0] = best_seg_ari
     draw(seg_idx[0])
 
 
@@ -448,7 +694,6 @@ def on_best_homog(_event):
 
 def on_rewind(_event):
     """Stop playback and reset position to the beginning of the current segment."""
-    was_playing = playing[0]
     _stop_audio()
     playing[0] = False
     pause_offset_sec[0] = 0.0
@@ -480,7 +725,7 @@ def on_play(_event):
         s1 = int(t_max * 60 * sample_rate)
         # Resume from pause offset (0 if starting fresh)
         offset_samples = int(pause_offset_sec[0] * sample_rate)
-        _play_audio(audio[s0 + offset_samples:s1])
+        _play_audio(audio[s0 + offset_samples : s1])
         play_start_wall[0] = time.time() - pause_offset_sec[0]
         play_start_min[0] = t_min
         playing[0] = True
@@ -508,7 +753,9 @@ def on_key(event):
     elif event.key == "b":
         on_best_detsim(None)
     elif event.key == "n" and manual_labels:
-        on_best_nmi(None)
+        on_best_ami(None)
+    elif event.key == "a" and manual_labels:
+        on_best_ari(None)
     elif event.key == "m" and manual_labels:
         on_best_homog(None)
     elif event.key == "r":
@@ -522,8 +769,10 @@ btn_last.on_clicked(on_last)
 btn_play.on_clicked(on_play)
 btn_rewind.on_clicked(on_rewind)
 btn_best_d.on_clicked(on_best_detsim)
-if btn_best_n is not None:
-    btn_best_n.on_clicked(on_best_nmi)
+if btn_best_a_m is not None:
+    btn_best_a_m.on_clicked(on_best_ami)
+if btn_best_a is not None:
+    btn_best_a.on_clicked(on_best_ari)
 if btn_best_h is not None:
     btn_best_h.on_clicked(on_best_homog)
 fig.canvas.mpl_connect("key_press_event", on_key)
@@ -572,7 +821,7 @@ def on_spectrogram_click(event):
     if was_playing:
         s0 = int(t_min * 60 * sample_rate)
         s1 = int(t_max * 60 * sample_rate)
-        _play_audio(audio[s0 + int(new_offset_sec * sample_rate):s1])
+        _play_audio(audio[s0 + int(new_offset_sec * sample_rate) : s1])
         play_start_wall[0] = time.time() - new_offset_sec
         play_start_min[0] = t_min
         playing[0] = True

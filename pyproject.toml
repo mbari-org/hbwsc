@@ -9,13 +9,16 @@ dependencies = [
     "librosa>=0.11.0",
     "matplotlib>=3.10.8",
     "numpy>=2.4.4",
-    "pandas>=3.0.2",
+    "pandas>=2.2.0",
     "pyyaml>=6.0.3",
     "scipy-stubs~=1.17.1",
     "sounddevice>=0.5.5",
     "soundfile>=0.13.1",
-    "torch>=2.11.0",
-    "torchaudio>=2.11.0",
+    "tensorflow>=2.21.0; sys_platform == 'darwin'",
+    "tensorflow[and-cuda]>=2.21.0; sys_platform == 'linux'",
+    "tensorflow-hub>=0.16.1",
+    "torch>=2.11.0; sys_platform == 'darwin'",
+    "torchaudio>=2.11.0; sys_platform == 'darwin'",
     "tqdm>=4.67.3",
     "typer>=0.9",
     "umap-learn>=0.5.11",
@@ -28,6 +31,9 @@ hbws-cluster = "hbws_clustering.__main__:app"
 dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.8",
+]
+gpu = [
+    "cuml-cu12>=24.12; sys_platform == 'linux'",
 ]
 
 [build-system]
@@ -46,3 +52,11 @@ select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true
+
+[tool.uv.sources]
+cuml-cu12 = { index = "nvidia" }
