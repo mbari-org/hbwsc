@@ -62,6 +62,7 @@ Results from that run:
 
 import argparse
 import csv
+import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import product
@@ -70,25 +71,27 @@ from pathlib import Path
 
 import numpy as np
 
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from hbws_clustering.evaluation import load_raven_labels, map_labels_to_windows, compute_metrics
+from hbws_clustering.evaluation import compute_metrics, load_raven_labels, map_labels_to_windows
 
 # ---------------------------------------------------------------------------
 # Backend detection: prefer GPU (cuML) when available
 # ---------------------------------------------------------------------------
 # DOING THIS ONLY FOR UMAP NOW BECAUSE HDBSCAN ON cuML DOESNT HAVE DBCV
 try:
-    from cuml.manifold import UMAP as _UMAP
     # from cuml.cluster import HDBSCAN as _HDBSCAN
     import rmm
+    from cuml.manifold import UMAP as _UMAP
+
     rmm.reinitialize(pool_allocator=True)
     _BACKEND = "gpu"
 except ImportError:
     import umap as _umap_lib
+
     _UMAP = _umap_lib.UMAP
     _BACKEND = "cpu"
 import hdbscan as _hdbscan_lib
+
 _HDBSCAN = _hdbscan_lib.HDBSCAN
 
 
@@ -98,8 +101,18 @@ _HDBSCAN = _hdbscan_lib.HDBSCAN
 # HDBSCAN runner
 # ---------------------------------------------------------------------------
 
-def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_samples: int, min_samples_pct: int,
-                         eps: float, alpha: float, t_umap: float, manual_window=None) -> dict:
+
+def _run_single_hdbscan(
+    reduced: np.ndarray,
+    umap_dims: int,
+    mcs: int,
+    min_samples: int,
+    min_samples_pct: int,
+    eps: float,
+    alpha: float,
+    t_umap: float,
+    manual_window=None,
+) -> dict:
     """Run one HDBSCAN config on the given reduced array."""
     t0 = time.perf_counter()
 
@@ -182,14 +195,25 @@ def _run_single_hdbscan(reduced: np.ndarray, umap_dims: int, mcs: int, min_sampl
     return ret
 
 
-def _run_hdbscan_from_shm(shm_name: str, shape: tuple, dtype_str: str,
-                           umap_dims: int, mcs: int, min_samples: int, min_samples_pct: int,
-                           eps: float, alpha: float,
-                           t_umap: float, manual_window=None) -> dict:
+def _run_hdbscan_from_shm(
+    shm_name: str,
+    shape: tuple,
+    dtype_str: str,
+    umap_dims: int,
+    mcs: int,
+    min_samples: int,
+    min_samples_pct: int,
+    eps: float,
+    alpha: float,
+    t_umap: float,
+    manual_window=None,
+) -> dict:
     """CPU multiprocessing wrapper: reads reduced data from shared memory."""
     shm = SharedMemory(name=shm_name)
     reduced = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
-    result = _run_single_hdbscan(reduced, umap_dims, mcs, min_samples, min_samples_pct, eps, alpha, t_umap, manual_window)
+    result = _run_single_hdbscan(
+        reduced, umap_dims, mcs, min_samples, min_samples_pct, eps, alpha, t_umap, manual_window
+    )
     shm.close()
     return result
 
@@ -198,6 +222,7 @@ def _run_hdbscan_from_shm(shm_name: str, shape: tuple, dtype_str: str,
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("embeddings", type=Path, help="Path to a cached embeddings .npy file")
@@ -205,17 +230,33 @@ def main() -> None:
     parser.add_argument("--mcs", default="50,100,200", help="Comma-separated min_cluster_size values")
     parser.add_argument("--neighbors", type=int, default=15, help="UMAP n_neighbors")
     parser.add_argument("--out", type=Path, default=None, help="Save results as CSV")
-    parser.add_argument("--epsilon", type=float, default=0.0, help="HDBSCAN cluster_selection_epsilon (single-run default; sweep uses --epsilons)")
+    parser.add_argument(
+        "--epsilon",
+        type=float,
+        default=0.0,
+        help="HDBSCAN cluster_selection_epsilon (single-run default; sweep uses --epsilons)",
+    )
     parser.add_argument("--alpha", type=float, default=1.0, help="HDBSCAN alpha")
-    parser.add_argument("--manual-labels", type=Path, default=None, help="Path to manual labels (Raven format) for supervised metrics")
-    parser.add_argument("--npz", type=Path, default=None, help="Path to results.npz to read start_secs from (required if --manual-labels is used)")
+    parser.add_argument(
+        "--manual-labels", type=Path, default=None, help="Path to manual labels (Raven format) for supervised metrics"
+    )
+    parser.add_argument(
+        "--npz",
+        type=Path,
+        default=None,
+        help="Path to results.npz to read start_secs from (required if --manual-labels is used)",
+    )
     parser.add_argument("--window-sec", type=float, default=None, help="Analysis window size in seconds")
     parser.add_argument(
         "--workers", type=int, default=2, help="Parallel HDBSCAN workers (CPU only; ignored on GPU; default: 2)"
     )
     parser.add_argument("--epsilons", type=str, default="0.0", help="Comma-separated HDBSCAN epsilons")
-    parser.add_argument("--min-samples-pct", type=str, default="100",
-                        help="Comma-separated min_samples as percentage of mcs (default: 100)")
+    parser.add_argument(
+        "--min-samples-pct",
+        type=str,
+        default="100",
+        help="Comma-separated min_samples as percentage of mcs (default: 100)",
+    )
     args = parser.parse_args()
 
     embeddings = np.load(args.embeddings)
@@ -282,7 +323,7 @@ def main() -> None:
     print("  ".join("-" * w for w in col_w))
 
     rows = []
-    
+
     t_sweep_start = time.perf_counter()
 
     # Reuse the same ProcessPoolExecutor for the entire script to avoid joblib hangs
@@ -290,9 +331,9 @@ def main() -> None:
         for umap_dims in dims_list:
             # Serial UMAP fit
             print(
-                f"\n  [UMAP] Fitting {umap_dims}-D reduction on "
-                f"{embeddings.shape[0]} embeddings ...",
-                end="", flush=True,
+                f"\n  [UMAP] Fitting {umap_dims}-D reduction on {embeddings.shape[0]} embeddings ...",
+                end="",
+                flush=True,
             )
             t0 = time.perf_counter()
             reducer = _UMAP(
@@ -320,9 +361,18 @@ def main() -> None:
             try:
                 futures = {
                     executor.submit(
-                        _run_hdbscan_from_shm, shm.name, red_shape, red_dtype.str,
-                        umap_dims, mcs, max(1, int(mcs * pct / 100)), pct,
-                        eps, args.alpha, t_umap, manual_window,
+                        _run_hdbscan_from_shm,
+                        shm.name,
+                        red_shape,
+                        red_dtype.str,
+                        umap_dims,
+                        mcs,
+                        max(1, int(mcs * pct / 100)),
+                        pct,
+                        eps,
+                        args.alpha,
+                        t_umap,
+                        manual_window,
                     ): (umap_dims, mcs, pct, eps)
                     for mcs, pct, eps in product(mcs_list, min_samples_pct_list, eps_list)
                 }

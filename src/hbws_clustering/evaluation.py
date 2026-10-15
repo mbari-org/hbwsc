@@ -2,6 +2,7 @@
 
 import csv
 from pathlib import Path
+
 import numpy as np
 from sklearn.metrics import (
     adjusted_mutual_info_score,
@@ -36,7 +37,7 @@ def map_labels_to_windows(
         end_secs: Array of window end times in seconds.
 
     Returns:
-        manual_window: np.ndarray (shape N), containing integer indices of the 
+        manual_window: np.ndarray (shape N), containing integer indices of the
                        manual label types, or -1 if no overlap.
         type_to_idx: dict mapping string label types to their integer indices.
     """

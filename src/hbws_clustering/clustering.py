@@ -10,8 +10,8 @@ import numpy as np
 # Prefer GPU-accelerated cuML HDBSCAN when available (e.g. Linux + NVIDIA GPU
 # with RAPIDS installed).  Falls back to the CPU hdbscan package otherwise.
 try:
-    from cuml.cluster import HDBSCAN as _HDBSCAN
     import rmm
+    from cuml.cluster import HDBSCAN as _HDBSCAN
 
     rmm.reinitialize(pool_allocator=True)
 

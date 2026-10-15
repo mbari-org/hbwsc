@@ -17,6 +17,7 @@ _AVES_BASE_BIO_URL = "https://storage.googleapis.com/esp-public-files/ported_ave
 
 _WAV_DATE_RE = re.compile(r"MARS-(\d{4})(\d{2})(\d{2})T")
 
+
 class EmbedderType(str, Enum):
     aves = "aves"
     perch = "perch"
@@ -74,7 +75,9 @@ def run(
     hop_sec: Optional[float] = typer.Option(None, help="Window hop in seconds (default = window_sec)."),
     sample_rate: int = typer.Option(16_000, help="Target sample rate for resampling."),
     embedder_type: EmbedderType = typer.Option(EmbedderType.aves, help="Type of embedder to use ('aves' or 'perch')."),
-    perch_padding: PaddingType = typer.Option(PaddingType.repeat, "--perch-padding", help="Perch padding mode: 'repeat' (tile audio) or 'zero' (zero-fill)."),
+    perch_padding: PaddingType = typer.Option(
+        PaddingType.repeat, "--perch-padding", help="Perch padding mode: 'repeat' (tile audio) or 'zero' (zero-fill)."
+    ),
     model: Optional[str] = typer.Option(None, help="URL to an AVES or Perch checkpoint."),
     pooling: str = typer.Option("mean", help="Embedding pooling: 'mean' or 'max'."),
     batch_size: int = typer.Option(16, help="AVES inference batch size. Increase (e.g. 64, 128) on GPU."),
@@ -127,10 +130,10 @@ def run(
         else:
             embedder = PerchEmbedder(batch_size=batch_size, padding=perch_padding.value)
     else:
-    #     if sample_rate != 16000:
-    #         raise typer.BadParameter("AVES requires --sample-rate 16000")
-    #     if window_sec != 2.0:
-    #         raise typer.BadParameter("AVES requires --window-sec 2.0")
+        #     if sample_rate != 16000:
+        #         raise typer.BadParameter("AVES requires --sample-rate 16000")
+        #     if window_sec != 2.0:
+        #         raise typer.BadParameter("AVES requires --window-sec 2.0")
         if model:
             embedder = AvesEmbedder(model_url=model, pooling=pooling, batch_size=batch_size)
         else:
@@ -156,10 +159,7 @@ def run(
         reducer=reducer_viz,
         reducer_cluster=reducer_cluster,
         clusterer=HdbscanClusterer(
-            min_cluster_size=min_cluster_size,
-            min_samples=min_samples,
-            alpha=alpha,
-            cluster_selection_epsilon=epsilon
+            min_cluster_size=min_cluster_size, min_samples=min_samples, alpha=alpha, cluster_selection_epsilon=epsilon
         ),
     )
 

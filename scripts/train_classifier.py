@@ -1,6 +1,6 @@
 """Train a classifier over previous HDBSCAN cluster assignments for inference on other audio files.
 
-Takes an existing successfully clustered results.npz and creates a pickled trained model file 
+Takes an existing successfully clustered results.npz and creates a pickled trained model file
 
 Usage:
     uv run python scripts/train_classifier.py <npz> [out.pkl]
@@ -16,9 +16,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from sklearn.linear_model import LogisticRegression
-import numpy as np
 import joblib
+import numpy as np
+from sklearn.linear_model import LogisticRegression
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from hbws_clustering.colors import extract_colors_from_npz
@@ -28,8 +28,8 @@ from hbws_clustering.colors import extract_colors_from_npz
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("npz", type=Path, help="Path to a results .npz file produced by hbws-cluster")
 parser.add_argument("out_pkl", type=Path, nargs="?", default=None, help="Output model path")
-# NOTE: Dropping noise is good for training, but will force every input to cluster somewhere, 
-# this should be addressed in the future, perhaps reintroducing noise in a smarter and more careful way. 
+# NOTE: Dropping noise is good for training, but will force every input to cluster somewhere,
+# this should be addressed in the future, perhaps reintroducing noise in a smarter and more careful way.
 parser.add_argument("--drop-noise", action="store_true", help="Drop labels with -1 (noise) before training")
 args = parser.parse_args()
 
@@ -55,10 +55,7 @@ if args.drop_noise:
 # --- model training ------------------------------------------------------
 
 # Logreg right now, as it works best on Perch, I assume will do poorly on AVES's embedding space
-logreg = LogisticRegression(
-    max_iter=1000,
-    random_state=42
-)
+logreg = LogisticRegression(max_iter=1000, random_state=42)
 
 logreg.fit(X_train, y_train)
 

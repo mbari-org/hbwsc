@@ -14,7 +14,9 @@ from hbws_clustering.colors import get_3d_colors, get_default_colors
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("npz", type=Path, nargs="?", default=Path("results.npz"), help="Path to results.npz")
 parser.add_argument("out", type=Path, nargs="?", default=None, help="Output PNG path")
-parser.add_argument("--default-colors", action="store_true", help="Use default tab20/turbo palette instead of spatial colors")
+parser.add_argument(
+    "--default-colors", action="store_true", help="Use default tab20/turbo palette instead of spatial colors"
+)
 args = parser.parse_args()
 
 npz_path = args.npz
@@ -35,7 +37,7 @@ else:
     # UMAP parameters matching the 2D version typically used
     reducer = umap.UMAP(n_components=3, random_state=42)
     xyz = reducer.fit_transform(embeddings)
-    
+
     # Save back to npz so it doesn't have to be computed again
     r["reduced_3d"] = xyz
     np.savez_compressed(npz_path, **r)
@@ -49,7 +51,7 @@ else:
     colors = get_default_colors(labels)
 
 fig = plt.figure(figsize=(10, 8))
-ax = fig.add_subplot(111, projection='3d')
+ax = fig.add_subplot(111, projection="3d")
 
 # Noise points: small grey dots in the background
 if noise_mask.any():
@@ -91,7 +93,7 @@ ax.set_zlabel("UMAP 3")
 ax.legend(loc="center left", bbox_to_anchor=(1.1, 0.5), fontsize=9, framealpha=0.7)
 fig.tight_layout(rect=[0, 0, 0.8, 1])
 
-fig.savefig(out_path, dpi=150, bbox_inches='tight')
+fig.savefig(out_path, dpi=150, bbox_inches="tight")
 print(f"Saved {out_path}")
 
 print("\n--- Opening interactive 3D window ---")

@@ -26,21 +26,23 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-import yaml
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.widgets as mwidgets
 import numpy as np
 import soundfile as sf
+import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from hbws_clustering.colors import get_2d_colors, get_default_colors, get_3d_colors, extract_colors_from_npz
+import sys
+
 from scipy.signal import spectrogram as scipy_spectrogram
 
-import sys
+from hbws_clustering.colors import extract_colors_from_npz
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from hbws_clustering.evaluation import map_labels_to_windows, compute_metrics
+from hbws_clustering.evaluation import compute_metrics, map_labels_to_windows
 
 _IS_MACOS = platform.system() == "Darwin"
 if not _IS_MACOS:
@@ -55,14 +57,31 @@ parser.add_argument("npz", type=Path)
 parser.add_argument("--segment-minutes", type=float, default=2.0, help="Segment duration in minutes")
 parser.add_argument("--audio", type=Path, help="WAV file to play/spectrogram (default: first source file in npz)")
 parser.add_argument("--manual-labels", type=Path, help="Raven selection table with manual labels (.txt)")
-parser.add_argument("--color", type=str, default="3D", choices=["2D", "3D", "default"], help="Color mapping mode: 2D, 3D, or default")
-parser.add_argument("--spectrogram-type", type=str, default="auto", choices=["auto", "default", "perch"], help="Spectrogram style")
+parser.add_argument(
+    "--color", type=str, default="3D", choices=["2D", "3D", "default"], help="Color mapping mode: 2D, 3D, or default"
+)
+parser.add_argument(
+    "--spectrogram-type", type=str, default="auto", choices=["auto", "default", "perch"], help="Spectrogram style"
+)
 parser.add_argument("--file-index", type=int, default=0, help="Index of the audio file to browse (default 0)")
-parser.add_argument("--export-pdf", type=Path, default=None, nargs="?", const=True,
-                    help="Export all segments to a PDF and exit. Optionally provide output path.")
-parser.add_argument("--title-mode", type=str, default="debug", choices=["debug", "paper", "presentation"], 
-                    help="Title style: 'debug' (full hyperparams), 'paper' (clean dataset name + metrics), or 'presentation' (static title).")
-parser.add_argument("--dataset-name", type=str, default="Dataset", help="Name of the dataset (used in 'paper' title mode).")
+parser.add_argument(
+    "--export-pdf",
+    type=Path,
+    default=None,
+    nargs="?",
+    const=True,
+    help="Export all segments to a PDF and exit. Optionally provide output path.",
+)
+parser.add_argument(
+    "--title-mode",
+    type=str,
+    default="debug",
+    choices=["debug", "paper", "presentation"],
+    help="Title style: 'debug' (full hyperparams), 'paper' (clean dataset name + metrics), or 'presentation' (static title).",
+)
+parser.add_argument(
+    "--dataset-name", type=str, default="Dataset", help="Name of the dataset (used in 'paper' title mode)."
+)
 args = parser.parse_args()
 
 # ---------------------------------------------------------------------------
@@ -106,7 +125,6 @@ colors = extract_colors_from_npz(dict(r), color_mode=args.color)
 
 hop_minutes = float(np.median(np.diff(start_secs))) / 60.0
 x_minutes = start_secs / 60.0
-
 
 
 # ---------------------------------------------------------------------------
@@ -180,13 +198,13 @@ total_minutes = x_minutes.max()
 n_segments = int(np.ceil(total_minutes / seg_minutes))
 seg_idx = [0]
 playing = [False]
-play_start_wall   = [0.0]   # wall-clock time when playback began (adjusted for pause)
-play_start_min    = [0.0]   # timeline position (minutes) at play start
-pause_offset_sec  = [0.0]   # elapsed seconds at last pause
-vline = [None]              # vertical playhead Line2D on ax_spec (animated)
-_bg   = [None]              # blitting background snapshot
-_audio_proc = [None]        # afplay subprocess (macOS only)
-_tmp_wav    = [None]        # path to current temp WAV (macOS only)
+play_start_wall = [0.0]  # wall-clock time when playback began (adjusted for pause)
+play_start_min = [0.0]  # timeline position (minutes) at play start
+pause_offset_sec = [0.0]  # elapsed seconds at last pause
+vline = [None]  # vertical playhead Line2D on ax_spec (animated)
+_bg = [None]  # blitting background snapshot
+_audio_proc = [None]  # afplay subprocess (macOS only)
+_tmp_wav = [None]  # path to current temp WAV (macOS only)
 
 # Precompute per-segment local Jaccard for "best alignment" button.
 # When manual labels are present, also build a per-window class-index array
@@ -201,11 +219,12 @@ if manual_labels:
     if _w_sec is None:
         _w_sec = 2 * params.get("hop_sec", 0.25)
     end_secs = start_secs + float(_w_sec)
-    
+
     # Convert UI minute labels back to seconds for the mapper
     manual_sec = [(b * 60, e * 60, t) for b, e, t in manual_labels]
     manual_window, unique_types_idx = map_labels_to_windows(manual_sec, start_secs, end_secs)
     is_labelled = manual_window >= 0
+
 
 def _segment_metrics(t_min: float, t_max: float) -> dict | None:
     """DetSim (Jaccard), NMI, Homogeneity for windows in [t_min, t_max) minutes.
@@ -216,14 +235,10 @@ def _segment_metrics(t_min: float, t_max: float) -> dict | None:
         return None
     mask = (x_minutes >= t_min) & (x_minutes < t_max)
     metrics = compute_metrics(labels[mask], manual_window[mask])
-    
+
     # Map back to old keys expected by the UI for now
-    return {
-        "detsim": metrics["DetSim"],
-        "ami": metrics["AMI"],
-        "ari": metrics["ARI"],
-        "homog": metrics["Homogeneity"]
-    }
+    return {"detsim": metrics["DetSim"], "ami": metrics["AMI"], "ari": metrics["ARI"], "homog": metrics["Homogeneity"]}
+
 
 overall_metrics = _segment_metrics(0, total_minutes)
 if overall_metrics is not None:
@@ -236,9 +251,9 @@ else:
 
 # Precompute per-segment metrics for the "best" buttons
 seg_detsim = np.zeros(n_segments)
-seg_ami    = np.zeros(n_segments)
-seg_ari    = np.zeros(n_segments)
-seg_homog  = np.zeros(n_segments)
+seg_ami = np.zeros(n_segments)
+seg_ari = np.zeros(n_segments)
+seg_homog = np.zeros(n_segments)
 for i in range(n_segments):
     t_min = i * seg_minutes
     t_max = min(t_min + seg_minutes, total_minutes)
@@ -250,17 +265,18 @@ for i in range(n_segments):
         seg_detsim[i] = is_clustered[mask].mean() if mask.any() else 0.0
     else:
         seg_detsim[i] = metr["detsim"]
-        seg_ami[i]    = 0.0 if np.isnan(metr["ami"])   else metr["ami"]
-        seg_ari[i]    = 0.0 if np.isnan(metr["ari"])   else metr["ari"]
-        seg_homog[i]  = 0.0 if np.isnan(metr["homog"]) else metr["homog"]
+        seg_ami[i] = 0.0 if np.isnan(metr["ami"]) else metr["ami"]
+        seg_ari[i] = 0.0 if np.isnan(metr["ari"]) else metr["ari"]
+        seg_homog[i] = 0.0 if np.isnan(metr["homog"]) else metr["homog"]
 best_seg_detsim = int(np.argmax(seg_detsim))
-best_seg_ami    = int(np.argmax(seg_ami))
-best_seg_ari    = int(np.argmax(seg_ari))
-best_seg_homog  = int(np.argmax(seg_homog))
+best_seg_ami = int(np.argmax(seg_ami))
+best_seg_ari = int(np.argmax(seg_ari))
+best_seg_homog = int(np.argmax(seg_homog))
 
 # ---------------------------------------------------------------------------
 # Shared rendering function
 # ---------------------------------------------------------------------------
+
 
 def fmt_hm(minutes):
     h, m = divmod(int(minutes), 60)
@@ -280,6 +296,7 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
 
     if spec_type == "perch":
         import librosa
+
         target_sr = 32000
         if sample_rate != target_sr:
             spec_chunk = librosa.resample(chunk, orig_sr=sample_rate, target_sr=target_sr)
@@ -290,29 +307,24 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         embed_window_len = int(float(embed_window_sec) * target_sr)
 
         for i in range(0, len(spec_chunk), embed_window_len):
-            chunk_slice = spec_chunk[i:i + embed_window_len]
+            chunk_slice = spec_chunk[i : i + embed_window_len]
             peak = np.abs(chunk_slice).max()
             if peak > 1e-8:
-                spec_chunk[i:i + len(chunk_slice)] = chunk_slice * (0.25 / peak)
+                spec_chunk[i : i + len(chunk_slice)] = chunk_slice * (0.25 / peak)
 
         # Front pad 160 samples for exact frame origin alignment
-        spec_chunk = np.pad(spec_chunk, (160, 0), mode='constant')
+        spec_chunk = np.pad(spec_chunk, (160, 0), mode="constant")
 
         n_fft = 1024
         hop_length = 320
         win_length = 640
 
         D = librosa.stft(
-            spec_chunk,
-            n_fft=n_fft,
-            hop_length=hop_length,
-            win_length=win_length,
-            center=False,
-            window='hann'
+            spec_chunk, n_fft=n_fft, hop_length=hop_length, win_length=win_length, center=False, window="hann"
         )
         mag = np.abs(D)
 
-        window = librosa.filters.get_window('hann', win_length)
+        window = librosa.filters.get_window("hann", win_length)
         scale = 1.0 / window.sum()
         mag = mag * scale
 
@@ -333,8 +345,7 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         times = librosa.frames_to_time(np.arange(Sxx_db.shape[1]), sr=target_sr, hop_length=hop_length)
 
         ax_spec.cla()
-        ax_spec.pcolormesh(times / 60 + t_min, mel_bins, Sxx_db, shading="auto",
-                           cmap="Blues_r", rasterized=True)
+        ax_spec.pcolormesh(times / 60 + t_min, mel_bins, Sxx_db, shading="auto", cmap="Blues_r", rasterized=True)
         # Label y-axis ticks with actual Hz values at evenly-spaced mel bin positions
         tick_bins = np.linspace(0, n_mels - 1, 8, dtype=int)
         ax_spec.set_yticks(tick_bins)
@@ -346,8 +357,7 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         Sxx_db = 10 * np.log10(Sxx + 1e-10)
 
         ax_spec.cla()
-        ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto",
-                           cmap="Blues_r", rasterized=True)
+        ax_spec.pcolormesh(times / 60 + t_min, freqs, Sxx_db, shading="auto", cmap="Blues_r", rasterized=True)
         ax_spec.set_ylabel("Freq (Hz)")
 
     ax_spec.set_xlim(t_min, t_max)
@@ -396,8 +406,14 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
             continue
         tag = "noise" if lbl == -1 else f"cluster {lbl}"
         ax_time.bar(
-            x_minutes[mask], height=1.0, width=hop_minutes, bottom=-0.5,
-            color=colors[lbl], linewidth=0, label=tag, align="edge",
+            x_minutes[mask],
+            height=1.0,
+            width=hop_minutes,
+            bottom=-0.5,
+            color=colors[lbl],
+            linewidth=0,
+            label=tag,
+            align="edge",
         )
     ax_time.set_xlim(t_min, t_max)
     ax_time.set_ylim(-0.5, 0.5)
@@ -407,10 +423,16 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
 
     if seg_minutes <= 32:
         handles, lbls = ax_time.get_legend_handles_labels()
-        ax_time.legend(handles, lbls, loc="lower left", bbox_to_anchor=(0, 1.01),
-                       ncol=min(n_clusters + 1, 12), fontsize=11, framealpha=0.8, borderaxespad=0)
-
-
+        ax_time.legend(
+            handles,
+            lbls,
+            loc="lower left",
+            bbox_to_anchor=(0, 1.01),
+            ncol=min(n_clusters + 1, 12),
+            fontsize=11,
+            framealpha=0.8,
+            borderaxespad=0,
+        )
 
     # --- manual labels strip --------------------------------------------------
     if ax_manu is not None:
@@ -437,7 +459,7 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         ax_manu.set_xlim(t_min, t_max)
         ax_manu.set_ylim(-0.5, 0.5)
         ax_manu.set_yticks([])
-        
+
         ax_manu.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
         ax_manu.tick_params(labelsize=10, labelbottom=True)
         ax_manu.set_ylabel("Manual Song Unit\nAnnotations", fontsize=12)
@@ -446,9 +468,17 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
         if seg_minutes <= 32:
             mhandles, mlbls = ax_manu.get_legend_handles_labels()
             if mhandles:
-                ax_manu.legend(mhandles, mlbls, loc="lower left", bbox_to_anchor=(0, 1.01),
-                               ncol=min(len(manual_colours), 15), fontsize=11, framealpha=0.8, borderaxespad=0)
-                           
+                ax_manu.legend(
+                    mhandles,
+                    mlbls,
+                    loc="lower left",
+                    bbox_to_anchor=(0, 1.01),
+                    ncol=min(len(manual_colours), 15),
+                    fontsize=11,
+                    framealpha=0.8,
+                    borderaxespad=0,
+                )
+
     if ax_manu is None:
         ax_time.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: fmt_hm(v)))
         ax_time.tick_params(labelsize=10, labelbottom=True)
@@ -458,6 +488,7 @@ def render_segment(idx, ax_spec, ax_time, ax_manu):
 # export as a pdf
 if args.export_pdf is not None:
     import matplotlib
+
     matplotlib.use("Agg")
     from matplotlib.backends.backend_pdf import PdfPages
 
@@ -474,7 +505,7 @@ if args.export_pdf is not None:
                 fig_exp = plt.figure(figsize=(20, 6))
             else:
                 fig_exp = plt.figure(figsize=(20, 10 if manual_labels else 8))
-                
+
             if seg_minutes > 32:
                 if manual_labels:
                     ax_spec = fig_exp.add_axes([0.05, 0.68, 0.93, 0.22])
@@ -493,7 +524,7 @@ if args.export_pdf is not None:
                     ax_spec = fig_exp.add_axes([0.05, 0.41, 0.93, 0.51])
                     ax_time = fig_exp.add_axes([0.05, 0.14, 0.93, 0.25])
                     ax_manu = None
-                
+
             render_segment(si, ax_spec, ax_time, ax_manu)
             pdf.savefig(fig_exp, dpi=150)
             plt.close(fig_exp)
@@ -528,19 +559,19 @@ else:
         ax_manu = None
 
 bw = 0.05  # button width
-ax_first  = fig.add_axes([0.06, 0.02, bw, 0.07])
-ax_prev   = fig.add_axes([0.12, 0.02, bw, 0.07])
-ax_next   = fig.add_axes([0.18, 0.02, bw, 0.07])
-ax_last   = fig.add_axes([0.24, 0.02, bw, 0.07])
-ax_play   = fig.add_axes([0.40, 0.02, bw, 0.07])
+ax_first = fig.add_axes([0.06, 0.02, bw, 0.07])
+ax_prev = fig.add_axes([0.12, 0.02, bw, 0.07])
+ax_next = fig.add_axes([0.18, 0.02, bw, 0.07])
+ax_last = fig.add_axes([0.24, 0.02, bw, 0.07])
+ax_play = fig.add_axes([0.40, 0.02, bw, 0.07])
 ax_rewind = fig.add_axes([0.46, 0.02, bw, 0.07])
 ax_best_d = fig.add_axes([0.55, 0.02, bw, 0.07])
 
-btn_first  = mwidgets.Button(ax_first,  "|◀ First")
-btn_prev   = mwidgets.Button(ax_prev,   "◀  Prev")
-btn_next   = mwidgets.Button(ax_next,   "Next  ▶")
-btn_last   = mwidgets.Button(ax_last,   "Last ▶|")
-btn_play   = mwidgets.Button(ax_play,   "▶  Play")
+btn_first = mwidgets.Button(ax_first, "|◀ First")
+btn_prev = mwidgets.Button(ax_prev, "◀  Prev")
+btn_next = mwidgets.Button(ax_next, "Next  ▶")
+btn_last = mwidgets.Button(ax_last, "Last ▶|")
+btn_play = mwidgets.Button(ax_play, "▶  Play")
 btn_rewind = mwidgets.Button(ax_rewind, "⏮ Rewind")
 btn_best_d = mwidgets.Button(ax_best_d, "★ DetSim")
 
@@ -554,6 +585,7 @@ if manual_labels:
     btn_best_a = mwidgets.Button(ax_best_a, "★ ARI")
     btn_best_h = mwidgets.Button(ax_best_h, "★ Homog")
 
+
 # interactive wrapper
 def draw(idx):
     render_segment(idx, ax_spec, ax_time, ax_manu)
@@ -564,8 +596,7 @@ def draw(idx):
 
     # Recreate animated playhead (not drawn during normal renders)
     t_min = idx * seg_minutes
-    vline[0] = ax_spec.axvline(x=t_min, color="white", linewidth=1.2,
-                                alpha=0.85, animated=True, zorder=10)
+    vline[0] = ax_spec.axvline(x=t_min, color="white", linewidth=1.2, alpha=0.85, animated=True, zorder=10)
 
 
 def _kill_afplay():
@@ -693,7 +724,7 @@ def on_play(_event):
         s1 = int(t_max * 60 * sample_rate)
         # Resume from pause offset (0 if starting fresh)
         offset_samples = int(pause_offset_sec[0] * sample_rate)
-        _play_audio(audio[s0 + offset_samples:s1])
+        _play_audio(audio[s0 + offset_samples : s1])
         play_start_wall[0] = time.time() - pause_offset_sec[0]
         play_start_min[0] = t_min
         playing[0] = True
@@ -789,7 +820,7 @@ def on_spectrogram_click(event):
     if was_playing:
         s0 = int(t_min * 60 * sample_rate)
         s1 = int(t_max * 60 * sample_rate)
-        _play_audio(audio[s0 + int(new_offset_sec * sample_rate):s1])
+        _play_audio(audio[s0 + int(new_offset_sec * sample_rate) : s1])
         play_start_wall[0] = time.time() - new_offset_sec
         play_start_min[0] = t_min
         playing[0] = True

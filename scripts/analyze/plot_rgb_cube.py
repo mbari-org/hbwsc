@@ -16,7 +16,7 @@ Z = Z.flatten()
 colors = np.column_stack((X, Y, Z))
 
 fig = plt.figure(figsize=(10, 8))
-ax = fig.add_subplot(111, projection='3d')
+ax = fig.add_subplot(111, projection="3d")
 
 # Scatter points to form the cube
 ax.scatter(X, Y, Z, c=colors, s=100, alpha=0.9, linewidths=0)

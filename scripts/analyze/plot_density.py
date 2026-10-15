@@ -102,6 +102,7 @@ y_step = [np.repeat(d, 2) for d in stack_data]
 
 # --- plot helper --------------------------------------------------------------
 
+
 def plot_segment(x_min, x_max, out_path):
     mask_seg = (x_step >= x_min - window_min) & (x_step <= x_max + window_min)
     if not mask_seg.any():
@@ -111,7 +112,7 @@ def plot_segment(x_min, x_max, out_path):
     seg_data = [d[mask_seg] for d in y_step]
 
     fig, ax = plt.subplots(figsize=(24, 1.8))
-    
+
     # stackplot
     ax.stackplot(seg_x, *seg_data, colors=stack_colors, linewidth=0)
 
@@ -125,7 +126,7 @@ def plot_segment(x_min, x_max, out_path):
     ax.set_xlabel("Time (h:mm)")
     ax.set_ylabel("Density")
     ax.set_yticks([0, 0.5, 1.0])
-    
+
     t_start = fmt_hm(x_min)
     t_end = fmt_hm(x_max)
     ax.set_title(f"{npz_path.parent.name} Density  [{t_start}–{t_end}]")
@@ -134,9 +135,9 @@ def plot_segment(x_min, x_max, out_path):
     legend_handles = []
     for lbl in stack_labels:
         tag = "noise" if lbl == -1 else f"cluster {lbl}"
-        patch = plt.Rectangle((0,0),1,1, color=colours[lbl])
+        patch = plt.Rectangle((0, 0), 1, 1, color=colours[lbl])
         legend_handles.append((patch, tag))
-    
+
     patches, lbls = zip(*legend_handles)
     ax.legend(
         patches,

@@ -13,16 +13,17 @@ Arguments:
                             win{w}_hop{h}_{embedder}_{padding}/embeddings.npy.
     [FUTURE] --embedding  type of embedding (Perch vs AVES).
 """
+
 import argparse
 import sys
-import joblib
-import yaml
 from pathlib import Path
-import numpy as np
 
+import joblib
+import numpy as np
+import yaml
+
+from hbws_clustering.embedding import AvesEmbedder, PerchEmbedder
 from hbws_clustering.windowing import AudioWindower
-from hbws_clustering.embedding import PerchEmbedder, AvesEmbedder
-from hbws_clustering.clustering import HdbscanClusterer  # Forces CUDA libraries to load for TensorFlow
 
 # --- args ---------------------------------------------------------------------
 
@@ -30,13 +31,21 @@ parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.R
 parser.add_argument("parameters", type=Path, help="Path to a parameters.yml file")
 parser.add_argument("pkl", type=Path, help="Path to a trained model .pkl file")
 parser.add_argument("out_npz", type=Path, nargs="?", default=None, help="Output predictions .npz path")
-parser.add_argument("--embeddings-cache-dir", type=Path, default=None,
-                    help="Directory of pre-computed embeddings keyed by win/hop/embedder/padding subdirs")
+parser.add_argument(
+    "--embeddings-cache-dir",
+    type=Path,
+    default=None,
+    help="Directory of pre-computed embeddings keyed by win/hop/embedder/padding subdirs",
+)
 args = parser.parse_args()
 
 parameters_path = args.parameters
 pkl_path = args.pkl
-npz_out = args.out_npz if args.out_npz else parameters_path.parent / "predictions" / f"{pkl_path.parts[-4]}_{pkl_path.parts[-3]}.npz"
+npz_out = (
+    args.out_npz
+    if args.out_npz
+    else parameters_path.parent / "predictions" / f"{pkl_path.parts[-4]}_{pkl_path.parts[-3]}.npz"
+)
 
 if npz_out.exists():
     print(f"Labels {npz_out} already exist. Skipping inference.")
@@ -59,12 +68,9 @@ if "hop_pct" in params:
     params["hop_sec"] = round(float(params["window_sec"]) * float(params["hop_pct"]) / 100.0, 4)
 
 # Resolve relative paths against the parameters.yml location
-audio_files = [str((parameters_path.parent / p).resolve()) for p in params['audio_files']]
+audio_files = [str((parameters_path.parent / p).resolve()) for p in params["audio_files"]]
 
-windower = AudioWindower(
-        window_sec=params['window_sec'], 
-        hop_sec=params['hop_sec']
-    )
+windower = AudioWindower(window_sec=params["window_sec"], hop_sec=params["hop_sec"])
 
 windows = []
 for af in audio_files:
@@ -75,6 +81,7 @@ if not windows:
     sys.exit(1)
 
 # --- embed and classify ---------------------------------------------------------------------
+
 
 def _cache_key(params: dict) -> str:
     """Build the sweep_embed naming convention key from parameters."""
@@ -112,18 +119,18 @@ if args.embeddings_cache_dir is not None:
 # If no embeddings found, compute embeddings
 if embeddings is None:
     print("Computing embeddings...")
-    embedder_type = params.get('embedder_type', 'aves')
-    if embedder_type == 'perch':
-        embedder = PerchEmbedder(batch_size=params.get('batch_size', 64), padding=params.get('perch_padding', 'repeat'))
+    embedder_type = params.get("embedder_type", "aves")
+    if embedder_type == "perch":
+        embedder = PerchEmbedder(batch_size=params.get("batch_size", 64), padding=params.get("perch_padding", "repeat"))
     else:
-        embedder = AvesEmbedder(batch_size=params.get('batch_size', 16))
+        embedder = AvesEmbedder(batch_size=params.get("batch_size", 16))
     embeddings = embedder.embed_windows(windows)
-    
+
     # Save to local path
     local_path = parameters_path.parent / "embeddings.npy"
     print(f"Saving computed embeddings to {local_path}...")
     np.save(local_path, embeddings)
-    
+
     # Also save to cache dir for future reuse
     if args.embeddings_cache_dir is not None:
         cache_path = args.embeddings_cache_dir / _cache_key(params) / "embeddings.npy"
@@ -137,18 +144,18 @@ labels = model.predict(embeddings)
 
 
 start_secs = np.array([w.start_sec for w in windows])
-    
+
 npz_out.parent.mkdir(parents=True, exist_ok=True)
 save_kwargs = {
     "labels": labels,
     "embeddings": embeddings,
     "start_secs": start_secs,
-    "source_files": np.array([w.source_file.name for w in windows])
+    "source_files": np.array([w.source_file.name for w in windows]),
 }
 
 if source_colors is not None:
     save_kwargs["cluster_color_keys"] = np.array(list(source_colors.keys()))
-    
+
     # Pad RGB (len 3) to RGBA (len 4) to ensure homogeneous array shape for npz saving
     vals = []
     for val in source_colors.values():
@@ -156,7 +163,7 @@ if source_colors is not None:
             vals.append((val[0], val[1], val[2], 1.0))
         else:
             vals.append(val)
-            
+
     save_kwargs["cluster_color_vals"] = np.array(vals)
 
 np.savez(npz_out, **save_kwargs)

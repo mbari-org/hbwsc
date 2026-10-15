@@ -142,8 +142,6 @@ class PerchEmbedder:
         ``"zero"`` pads with zeros.
     """
 
-  
-
     model_url: str = "auto"  # resolved to GPU/CPU variant on first use
     pooling: str = "mean"
     batch_size: int = 64  # Increased from 16 for better CPU parallelism (note: I couldn't tell a difference)
@@ -153,9 +151,7 @@ class PerchEmbedder:
 
     def __post_init__(self) -> None:
         if self.padding not in ("repeat", "zero"):
-            raise ValueError(
-                f"Unknown padding mode: {self.padding!r}. Use 'repeat' or 'zero'."
-            )
+            raise ValueError(f"Unknown padding mode: {self.padding!r}. Use 'repeat' or 'zero'.")
 
     def _load(self) -> None:
         if self._model is not None:
@@ -170,7 +166,7 @@ class PerchEmbedder:
                     tf.config.experimental.set_memory_growth(gpu, True)
             except RuntimeError:
                 pass
-            
+
         if self.model_url == "auto":
             self.model_url = PERCH_GPU if gpus else PERCH_CPU
         self._model = hub.load(self.model_url)
@@ -204,9 +200,7 @@ class PerchEmbedder:
                 waveforms = waveforms[:, :target_len]
             else:  # "zero"
                 pad_len = target_len - current_len
-                waveforms = np.pad(
-                    waveforms, ((0, 0), (0, pad_len)), mode="constant", constant_values=0.0
-                )
+                waveforms = np.pad(waveforms, ((0, 0), (0, pad_len)), mode="constant", constant_values=0.0)
 
         # Apply peak normalization to 0.25 per window as per Perch 2.0 spec
         for i in range(len(waveforms)):
@@ -214,9 +208,9 @@ class PerchEmbedder:
             if peak > 1e-8:
                 waveforms[i] = waveforms[i] * (0.25 / peak)
 
-        model_outputs = self._model.signatures['serving_default'](inputs=waveforms)
+        model_outputs = self._model.signatures["serving_default"](inputs=waveforms)
 
         # "embedding" key gives the actual perch embeddings
-        pooled = model_outputs['embedding'].numpy()
+        pooled = model_outputs["embedding"].numpy()
 
         return pooled

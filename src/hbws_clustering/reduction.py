@@ -10,8 +10,8 @@ import numpy as np
 # Prefer GPU-accelerated cuML UMAP when available (e.g. Linux + NVIDIA GPU
 # with RAPIDS installed).  Falls back to the CPU umap-learn package otherwise.
 try:
-    from cuml.manifold import UMAP as _UMAP
     import rmm
+    from cuml.manifold import UMAP as _UMAP
 
     # RMM pool allocator prevents memory fragmentation and cudaMalloc bottlenecks
     rmm.reinitialize(pool_allocator=True)

@@ -92,7 +92,9 @@ class ClusteringPipeline:
             windows.extend(file_windows)
 
         self._log(f"  Total windows: {len(windows)}")
-        embeddings = self._finalize_embeddings(windows, embeddings_parts, use_cache, cached if use_cache else None, embeddings_cache)
+        embeddings = self._finalize_embeddings(
+            windows, embeddings_parts, use_cache, cached if use_cache else None, embeddings_cache
+        )
         return self._run_from_embeddings(windows, embeddings)
 
     def run_scored(self, pairs: Sequence[ScoredPair], embeddings_cache: Path | None = None) -> PipelineResult:
@@ -136,7 +138,9 @@ class ClusteringPipeline:
             windows.extend(file_windows)
 
         self._log(f"  Total windows: {len(windows)}")
-        embeddings = self._finalize_embeddings(windows, embeddings_parts, use_cache, cached if use_cache else None, embeddings_cache)
+        embeddings = self._finalize_embeddings(
+            windows, embeddings_parts, use_cache, cached if use_cache else None, embeddings_cache
+        )
         return self._run_from_embeddings(windows, embeddings)
 
     def _finalize_embeddings(
@@ -155,8 +159,7 @@ class ClusteringPipeline:
             assert cached is not None
             if cached.shape[0] != len(windows):
                 raise ValueError(
-                    f"Cache has {cached.shape[0]} rows but {len(windows)} windows. "
-                    "Delete the cache file and re-run."
+                    f"Cache has {cached.shape[0]} rows but {len(windows)} windows. Delete the cache file and re-run."
                 )
             return cached
 
@@ -207,4 +210,3 @@ class ClusteringPipeline:
     def _log(self, msg: str) -> None:
         if self.verbose:
             print(msg)
-

@@ -35,17 +35,16 @@ Usage
     uv run python scripts/session.py <session_dir> inspect [mcs]
 """
 
+import copy
 import json
 import subprocess
 import sys
-import copy
 from datetime import datetime, timezone
-from pathlib import Path
 from itertools import product
+from pathlib import Path
 
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from hbws_clustering.evaluation import load_raven_labels, map_labels_to_windows, compute_metrics
+from hbws_clustering.evaluation import compute_metrics, load_raven_labels, map_labels_to_windows
 
 try:
     import yaml
@@ -122,10 +121,10 @@ def load_params(session_dir: Path) -> dict:
         sys.exit(1)
     with open(yml) as f:
         params = yaml.safe_load(f)
-        
+
     if "hop_pct" in params:
         params["hop_sec"] = round(float(params["window_sec"]) * float(params["hop_pct"]) / 100.0, 4)
-        
+
     # Resolve relative paths against the session directory so that parameters.yml
     # is self-contained regardless of the working directory when just is invoked.
     for key in ("score_file", "score_dir", "manual_labels"):
@@ -138,17 +137,17 @@ def load_params(session_dir: Path) -> dict:
 def mcs_dir(session_dir: Path, params: dict, mcs_arg: str) -> tuple[Path, int]:
     mcs = int(mcs_arg) if mcs_arg else int(params.get("min_cluster_size", 100))
     umap_dims = int(params.get("umap_cluster_components", 10))
-    
+
     folder_name = f"umap{umap_dims}_mcs{mcs}"
-    
+
     eps = params.get("hdbscan_epsilon", 0.0)
     if eps != 0.0:
         folder_name += f"_eps{eps}"
-        
+
     alpha = params.get("hdbscan_alpha", 1.0)
     if alpha != 1.0:
         folder_name += f"_alpha{alpha}"
-        
+
     d = session_dir / folder_name
     d.mkdir(parents=True, exist_ok=True)
     return d, mcs
@@ -229,7 +228,7 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
         cmd += ["--perch-padding", str(params["perch_padding"])]
     if "model" in params:
         cmd += ["--model", str(params["model"])]
-        
+
     min_samples = params.get("min_samples")
     if min_samples is None and "min_samples_pct" in params:
         min_samples = max(1, int(mcs * float(params["min_samples_pct"]) / 100))
@@ -283,13 +282,13 @@ def cmd_run(session_dir: Path, params: dict, mcs_arg: str):
                 try:
                     manual = load_raven_labels(manual_labels)
                     start_secs = r["start_secs"]
-                    
+
                     window_sec = float(params["window_sec"])
                     end_secs = start_secs + window_sec
-                    
+
                     manual_window, _ = map_labels_to_windows(manual, start_secs, end_secs)
                     metrics = compute_metrics(labels, manual_window)
-                    
+
                     if not np.isnan(metrics.get("DetSim", float("nan"))):
                         summary["evaluation"] = metrics
                         print("Evaluated against manual labels and added metrics to summary.")
@@ -310,7 +309,7 @@ def cmd_sweep(session_dir: Path, params: dict):
     sweep_out = session_dir / "sweep"
     sweep_out.mkdir(exist_ok=True)
     n_workers = params.get("sweep_workers", 2)
-    
+
     csv_name = f"results_workers{n_workers}"
     eps = params.get("hdbscan_epsilon", 0.0)
     alpha = params.get("hdbscan_alpha", 1.0)
@@ -354,7 +353,9 @@ def cmd_sweep(session_dir: Path, params: dict):
         if not manual_labels.is_absolute():
             manual_labels = session_dir / manual_labels
         if manual_labels.exists() and npz.exists():
-            cmd.extend(["--manual-labels", str(manual_labels), "--npz", str(npz), "--window-sec", str(params["window_sec"])])
+            cmd.extend(
+                ["--manual-labels", str(manual_labels), "--npz", str(npz), "--window-sec", str(params["window_sec"])]
+            )
 
     run_cmd(cmd)
 
@@ -367,7 +368,7 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
     if not sweep_config:
         print("Could nto find 'embedding_sweep' block in parameters.yml")
         return
-    
+
     # sweep session directory
     sweep_out_dir = session_dir / "sweep_embed"
     sweep_out_dir.mkdir(exist_ok=True)
@@ -415,10 +416,10 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
         child_params["hop_sec"] = hop_sec
         child_params["embedder_type"] = embedder_type
         child_params["perch_padding"] = perch_padding
-        
+
         with open(session_dir / "parameters.yml") as f:
             raw_params = yaml.safe_load(f)
-            
+
         for key in ("score_file", "score_dir", "manual_labels"):
             if key in child_params and child_params[key]:
                 # Prepend ../../ to account for the nested sweep_embed/<config>/ directory
@@ -444,12 +445,12 @@ def cmd_sweep_embed(session_dir: Path, params: dict):
             if (sweep_sesh_dir / "sweep" / csv_name).exists():
                 print(f"Skipping {sweep_sesh_name}: results already exist.")
                 continue
-            
+
         print(f"Created embedding sweep: {sweep_sesh_name}, running pipeline:")
 
         cmd_run(sweep_sesh_dir, load_params(sweep_sesh_dir), "")
-        
-        print(f"Clustering session...")
+
+        print("Clustering session...")
 
         cmd_sweep(sweep_sesh_dir, child_params)
 
@@ -468,13 +469,18 @@ def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):
 
     timeline_dir = d / "timeline"
     timeline_dir.mkdir(exist_ok=True)
-    timeline_cmd = ["uv", "run", "python", "scripts/analyze/plot_timeline.py", str(npz), str(timeline_dir / "timeline.png")]
+    timeline_cmd = [
+        "uv",
+        "run",
+        "python",
+        "scripts/analyze/plot_timeline.py",
+        str(npz),
+        str(timeline_dir / "timeline.png"),
+    ]
     seg_minutes = params.get("timeline_segment_minutes", 0)
     if seg_minutes:
         timeline_cmd += ["--segment-minutes", str(seg_minutes)]
     run_cmd(timeline_cmd)
-    
-
 
     run_cmd(["uv", "run", "python", "scripts/export_raven_table.py", str(npz), window_sec, str(d / "raven.txt")])
 
@@ -489,11 +495,18 @@ def cmd_analyze(session_dir: Path, params: dict, mcs_arg: str):
         if not manual_labels.is_absolute():
             manual_labels = session_dir / manual_labels
         if manual_labels.exists():
-            run_cmd([
-                "uv", "run", "python", "scripts/compare_labels.py",
-                str(npz), str(manual_labels),
-                "--out", str(d / "label_comparison.txt"),
-            ])
+            run_cmd(
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "scripts/compare_labels.py",
+                    str(npz),
+                    str(manual_labels),
+                    "--out",
+                    str(d / "label_comparison.txt"),
+                ]
+            )
         else:
             print(f"WARNING: manual_labels not found: {manual_labels}")
 
@@ -517,7 +530,16 @@ def cmd_aggregate_sweep_embed(session_dir: Path):
 # Entry point
 # ---------------------------------------------------------------------------
 
-COMMANDS = {"init", "run", "sweep", "analyze", "inspect", "sweep-embed", "aggregate-sweep-embed", "evaluate-generalization"}
+COMMANDS = {
+    "init",
+    "run",
+    "sweep",
+    "analyze",
+    "inspect",
+    "sweep-embed",
+    "aggregate-sweep-embed",
+    "evaluate-generalization",
+}
 
 if __name__ == "__main__":
     if len(sys.argv) < 3 or sys.argv[2] not in COMMANDS:

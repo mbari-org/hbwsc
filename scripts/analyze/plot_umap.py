@@ -4,17 +4,18 @@ import argparse
 import sys
 from pathlib import Path
 
-import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from hbws_clustering.colors import get_2d_colors, get_default_colors, get_3d_colors
+from hbws_clustering.colors import get_2d_colors, get_3d_colors, get_default_colors
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("npz", type=Path, nargs="?", default=Path("results.npz"), help="Path to results.npz")
 parser.add_argument("out", type=Path, nargs="?", default=None, help="Output PNG path")
-parser.add_argument("--color", type=str, default="2D", choices=["2D", "3D", "default", "uncolored"], help="Color mapping mode")
+parser.add_argument(
+    "--color", type=str, default="2D", choices=["2D", "3D", "default", "uncolored"], help="Color mapping mode"
+)
 args = parser.parse_args()
 
 npz_path = args.npz
@@ -84,5 +85,5 @@ if args.color != "uncolored":
 ax.set_aspect("equal", adjustable="datalim")
 fig.tight_layout(rect=[0, 0, 0.85, 1])
 
-fig.savefig(out_path, dpi=150, bbox_inches='tight')
+fig.savefig(out_path, dpi=150, bbox_inches="tight")
 print(f"Saved {out_path}")

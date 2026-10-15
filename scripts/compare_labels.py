@@ -29,24 +29,29 @@ Arguments:
 import argparse
 import sys
 from pathlib import Path
+
 import numpy as np
 
 # Ensure src/ is in the python path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from hbws_clustering.evaluation import load_raven_labels, map_labels_to_windows, compute_metrics
+from hbws_clustering.evaluation import compute_metrics, load_raven_labels, map_labels_to_windows
 
 
 class Tee:
     """Write to both stdout and a file."""
+
     def __init__(self, path):
         self._file = open(path, "w")
         self._stdout = sys.stdout
+
     def write(self, data):
         self._stdout.write(data)
         self._file.write(data)
+
     def flush(self):
         self._stdout.flush()
         self._file.flush()
+
     def close(self):
         self._file.close()
 
@@ -81,16 +86,16 @@ def main():
     print(f"Manual:     {len(manual)} selections, {len(unique_types)} types: {unique_types}\n")
 
     manual_window, type_to_idx = map_labels_to_windows(manual, start_secs, end_secs)
-    
+
     # ---------------------------------------------------------------------------
     # Detection similarity (Jaccard)
     # ---------------------------------------------------------------------------
     is_clustered = labels >= 0
-    is_labelled  = manual_window >= 0
+    is_labelled = manual_window >= 0
 
     intersection = (is_clustered & is_labelled).sum()
-    union        = (is_clustered | is_labelled).sum()
-    
+    union = (is_clustered | is_labelled).sum()
+
     metrics = compute_metrics(labels, manual_window)
 
     print("=== Detection similarity ===")
@@ -104,13 +109,13 @@ def main():
     # Contingency table (intersection only)
     # ---------------------------------------------------------------------------
     in_both = is_clustered & is_labelled
-    c_in  = labels[in_both]
-    m_in  = manual_window[in_both]
+    c_in = labels[in_both]
+    m_in = manual_window[in_both]
 
     unique_clusters = sorted(np.unique(c_in).tolist())
     n_c = len(unique_clusters)
     n_m = len(unique_types)
-    
+
     if n_c > 0 and n_m > 0:
         cluster_to_row = {c: i for i, c in enumerate(unique_clusters)}
         contingency = np.zeros((n_c, n_m), dtype=int)

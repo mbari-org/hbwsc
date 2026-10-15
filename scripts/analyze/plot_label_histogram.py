@@ -1,7 +1,7 @@
 """Plot a histogram of label frequencies from a Raven selection table."""
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
 LABEL_FILE = "ryjo_labels/MARS_20161221_000046_SongSession_16kHz_HPF5HzNorm_labels.txt"
 

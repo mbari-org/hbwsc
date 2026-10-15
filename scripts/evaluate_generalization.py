@@ -26,19 +26,19 @@ Options:
 
 import argparse
 import csv
-import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
+
 import numpy as np
 import yaml
 
 # Ensure scripts and src are accessible
 sys.path.insert(0, str(Path(__file__).parent))
-from session import load_params, cmd_run, mcs_dir, cmd_sweep_embed, cmd_aggregate_sweep_embed
+from session import cmd_aggregate_sweep_embed, cmd_run, cmd_sweep_embed, load_params, mcs_dir
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from hbws_clustering.evaluation import load_raven_labels, map_labels_to_windows, compute_metrics
+from hbws_clustering.evaluation import compute_metrics, load_raven_labels, map_labels_to_windows
 
 
 def run_subprocess(cmd):
@@ -111,10 +111,10 @@ def main():
     sweep_embed_dir = train_dir / "sweep_embed"
     combined_csv = sweep_embed_dir / "combined_results.csv"
 
-    print(f"\nRunning sweep-embed pipeline...")
+    print("\nRunning sweep-embed pipeline...")
     cmd_sweep_embed(train_dir, train_params_root)
 
-    print(f"\nAggregating sweep results...")
+    print("\nAggregating sweep results...")
     cmd_aggregate_sweep_embed(train_dir)
 
     if not combined_csv.exists():
@@ -224,7 +224,7 @@ def main():
         d, _ = mcs_dir(session_dir, train_params, mcs_val)
         npz = d / "results.npz"
         if not npz.exists():
-            print(f"Generating cluster labels for train session...")
+            print("Generating cluster labels for train session...")
             cmd_run(session_dir, train_params, mcs_val)
         else:
             print(f"Found existing clustering results: {npz}")
@@ -232,7 +232,7 @@ def main():
         # Train classifier
         model_pkl = session_dir / "models" / f"{npz.parent.name}_model.pkl"
         if not model_pkl.exists():
-            print(f"Training classifier on cluster labels...")
+            print("Training classifier on cluster labels...")
             cmd = ["uv", "run", "python", "scripts/train_classifier.py", str(npz), str(model_pkl)]
             if args.drop_noise:
                 cmd.append("--drop-noise")
@@ -262,7 +262,7 @@ def main():
             print(f"Found existing predictions: {pred_npz}")
 
         # Evaluate against ground truth
-        print(f"Evaluating predictions against manual labels...")
+        print("Evaluating predictions against manual labels...")
         r_pred = np.load(pred_npz, allow_pickle=False)
         labels = r_pred["labels"]
         start_secs = r_pred["start_secs"]

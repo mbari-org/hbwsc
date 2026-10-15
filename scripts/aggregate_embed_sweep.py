@@ -1,45 +1,46 @@
 # Functionality to sweep embeddings of window size, hop size, and perch padding style (repeat or zero padding).
 import sys
-import pandas as pd
 from pathlib import Path
-import re
+
+import pandas as pd
+
 
 def main():
     if len(sys.argv) != 3:
         print("Usage: uv run python aggregate_embed_sweep.py <session_dir> <output_csv>")
         sys.exit(1)
-        
+
     session_dir = Path(sys.argv[1])
     out_csv = Path(sys.argv[2])
-    
+
     sweep_out_dir = session_dir / "sweep_embed"
     if not sweep_out_dir.exists():
         print(f"ERROR: {sweep_out_dir} does not exist.")
         sys.exit(1)
-        
+
     all_dfs = []
-    
+
     for child in sweep_out_dir.iterdir():
         if child.is_dir():
-            parts = child.name.split('_')
-            
+            parts = child.name.split("_")
+
             # Check if this looks like a sweep directory: winX_hopY_embedder[_padding]
-            if len(parts) < 3 or not parts[0].startswith('win') or not parts[1].startswith('hop'):
+            if len(parts) < 3 or not parts[0].startswith("win") or not parts[1].startswith("hop"):
                 continue
-                
+
             try:
-                window_sec = float(parts[0].replace('win', ''))
-                hop_str = parts[1].replace('hop', '')
-                
-                is_pct = hop_str.endswith('pct')
+                window_sec = float(parts[0].replace("win", ""))
+                hop_str = parts[1].replace("hop", "")
+
+                is_pct = hop_str.endswith("pct")
                 if is_pct:
-                    hop_raw = float(hop_str.replace('pct', ''))
+                    hop_raw = float(hop_str.replace("pct", ""))
                 else:
                     hop_raw = float(hop_str)
-                    
+
                 embedder_type = parts[2]
                 perch_padding = parts[3] if len(parts) > 3 else "repeat"
-                
+
                 if is_pct:
                     hop_pct = int(hop_raw)
                     hop_sec = round(window_sec * hop_pct / 100, 4)
@@ -49,20 +50,20 @@ def main():
             except ValueError:
                 # If conversion to float fails, it's not a valid sweep directory
                 continue
-                
+
             # find the csv inside
             sweep_dir = child / "sweep"
             if not sweep_dir.exists():
                 continue
-            
+
             # find results_*.csv
             csvs = list(sweep_dir.glob("results_*.csv"))
             if not csvs:
                 continue
-            
+
             # there should be only one, or we take the newest
             csv_path = max(csvs, key=lambda p: p.stat().st_mtime)
-            
+
             try:
                 df = pd.read_csv(csv_path)
                 df.insert(0, "embedder_type", embedder_type)
@@ -73,16 +74,20 @@ def main():
                 all_dfs.append(df)
             except (IOError, pd.errors.EmptyDataError) as e:
                 print(f"Error reading {csv_path}: {e}")
-                    
+
     if not all_dfs:
         print("No results found to aggregate.")
         sys.exit(0)
-        
+
     combined_df = pd.concat(all_dfs, ignore_index=True)
-    
-    if "min_samples_pct" not in combined_df.columns and "min_samples" in combined_df.columns and "mcs" in combined_df.columns:
+
+    if (
+        "min_samples_pct" not in combined_df.columns
+        and "min_samples" in combined_df.columns
+        and "mcs" in combined_df.columns
+    ):
         combined_df["min_samples_pct"] = (combined_df["min_samples"] / combined_df["mcs"] * 100).round().astype(int)
-        
+
     if "min_samples" in combined_df.columns:
         combined_df.drop(columns=["min_samples"], inplace=True)
 
@@ -91,14 +96,15 @@ def main():
     for col in ["ami", "ari", "homog"]:
         if col in combined_df.columns:
             sort_cols.append(col)
-    
+
     combined_df["mean_total_score"] = combined_df[sort_cols].mean(axis=1)
 
     if sort_cols:
         combined_df = combined_df.sort_values(by="mean_total_score", ascending=False)
-        
+
     combined_df.to_csv(out_csv, index=False)
     print(f"Aggregated {len(combined_df)} rows into {out_csv}")
+
 
 if __name__ == "__main__":
     main()
